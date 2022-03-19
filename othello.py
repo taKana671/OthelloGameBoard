@@ -1,6 +1,22 @@
 import pygame
 import sys
+from collections import namedtuple
+from enum import Enum, auto
+from pathlib import Path
 from pygame.locals import *
+
+
+Point = namedtuple('Point', 'x y')
+
+
+class Disks(Enum):
+
+    BLACK = 1
+    WHITE = 2
+
+    @property
+    def file_path(self):
+        return Path('images', self.name.lower())
 
 
 class Board:
@@ -8,6 +24,7 @@ class Board:
     def __init__(self):
         self.grid_size = 70
         self.rows = 8
+        self.cols = 8
         self.left = 70
         self.top = 120
         self.right = self.left + self.rows * self.grid_size
@@ -22,10 +39,15 @@ class Board:
             x += self.grid_size
             y += self.grid_size
 
+    def find_position(self, x, y):
+        row = (y - self.top) // self.grid_size
+        col = (x - self.left) // self.grid_size
+        return row, col
+
     def grid_center(self, row, col):
-        pass
-
-
+        center_y = self.top + self.grid_size * row + self.grid_size // 2
+        center_x = self.left + self.grid_size * col + self.grid_size // 2
+        return Point(center_x, center_y)
 
 
 class Othello:
@@ -34,28 +56,25 @@ class Othello:
         self.screen = screen
         self.board = board
         self.cursor = cursor
+        self.disks = [[None for _ in range(self.board.cols)] for _ in range(self.board.rows)]
+
+    def Setup(self):
+        pass
 
     def update(self):
         self.board.draw(self.screen)
 
-    def click(self, x, y):
-        if self.board.left <= x <= self.board.right and \
-                self.board.top <= y <= self.board.bottom:
-            col = int((x - self.board.left) / self.board.grid_size)
-            row = int((y - self.board.top) / self.board.grid_size)
-
+    def place(self, pos):
+        if self.cursor.visible:
+            row, col = self.board.find_position(*pos)
             print(row, col)
 
-    def cursor(self, x, y):
-        pass
 
-
-
-class Stone(pygame.sprite.Sprite):
+class Disk(pygame.sprite.Sprite):
 
     def __init__(self):
         super().__init__(self.containers)
-        self.image = pygame.image.load('igo_white.png').convert_alpha()
+        self.image = pygame.image.load('igo_black.png').convert_alpha()
         # self.image = pygame.transform.scale(self.image, (100, 70))
         self.image = pygame.transform.scale(self.image, (99, 90))
         self.rect = self.image.get_rect()
@@ -63,42 +82,47 @@ class Stone(pygame.sprite.Sprite):
         self.rect.centery = 365
 
 
-class Mouse(pygame.sprite.Sprite):
+class Cursor(pygame.sprite.Sprite):
 
     def __init__(self, board):
         super().__init__(self.containers)
-        self.image = pygame.image.load('cursor.png').convert_alpha()
+        self.image = pygame.image.load('images/cursor.png').convert_alpha()
         self.image = pygame.transform.scale(self.image, (50, 50))
         self.rect = self.image.get_rect()
         self.visible = False
         self.board = board
 
-    def appear(self):
-        pygame.mouse.set_visible(False)
-        self.image = self.scale.transform(self.image, (50, 50))
+    def calc_distance(self, pt1, pt2):
+        return ((pt2.x - pt1.x) ** 2 + (pt2.y - pt1.y) ** 2) ** 0.5
 
-    def move(self, x, y):
-        self.rect.centerx = x + 3
-        self.rect.top = y
-
+    def move(self, cursor_pos):
+        if self.board.left <= cursor_pos.x <= self.board.right and \
+                self.board.top <= cursor_pos.y <= self.board.bottom:
+            row, col = self.board.find_position(*cursor_pos)
+            grid_center = self.board.grid_center(row, col)
+            if self.calc_distance(cursor_pos, grid_center) <= 30:
+                self.visible = True
+                pygame.mouse.set_visible(False)
+                self.rect.centerx = cursor_pos.x + 3
+                self.rect.top = cursor_pos.y
+                return
+        self.visible = False
+        pygame.mouse.set_visible(True)
 
 
 def main():
     pygame.init
     screen = pygame.display.set_mode((700, 800))
     pygame.display.set_caption('Othello game board')
-    pygame.mouse.set_visible(False)
     stones = pygame.sprite.RenderUpdates()
     cursor = pygame.sprite.RenderUpdates()
-    Stone.containers = stones
-    Mouse.containers = cursor
+    Disk.containers = stones
+    Cursor.containers = cursor
 
     clock = pygame.time.Clock()
     board = Board()
-    finger = Mouse(board)
+    finger = Cursor(board)
     othello = Othello(screen, board, finger)
-
-    _ = Stone()
 
     while True:
         clock.tick(60)
@@ -117,12 +141,11 @@ def main():
                 sys.exit()
             if event.type == MOUSEMOTION:
                 x, y = event.pos
-                # cursor.move(x, y)
-                # print(f'cursor x: {x}, y: {y}')
+                finger.move(Point(*event.pos))
 
             if event.type == MOUSEBUTTONDOWN and event.button == 1:
                 if finger.visible:
-                    othello.click(*event.pos)
+                    othello.place(Point(*event.pos))
 
         pygame.display.update()
 
