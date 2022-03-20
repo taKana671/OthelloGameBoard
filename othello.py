@@ -1,22 +1,35 @@
 import pygame
-import sys
 from collections import namedtuple
 from enum import Enum, auto
 from pathlib import Path
 from pygame.locals import *
 
 
+SCREEN = Rect(0, 0, 700, 800)
+
+
 Point = namedtuple('Point', 'x y')
 
 
-class Disks(Enum):
+class Piece(Enum):
 
-    BLACK = 1
-    WHITE = 2
+    BLACK = 0
+    WHITE = 1
 
     @property
-    def file_path(self):
-        return Path('images', self.name.lower())
+    def filepath(self):
+        return Path('images', f'{self.name.lower()}.png')
+
+
+class Disk(pygame.sprite.Sprite):
+
+    def __init__(self, disk, center):
+        super().__init__(self.containers)
+        self.image = pygame.image.load(disk.filepath).convert_alpha()
+        self.image = pygame.transform.scale(self.image, (99, 90))
+        self.rect = self.image.get_rect()
+        self.rect.centerx, self.rect.centery = center
+        self.color = disk
 
 
 class Board:
@@ -50,38 +63,6 @@ class Board:
         return Point(center_x, center_y)
 
 
-class Othello:
-
-    def __init__(self, screen, board, cursor):
-        self.screen = screen
-        self.board = board
-        self.cursor = cursor
-        self.disks = [[None for _ in range(self.board.cols)] for _ in range(self.board.rows)]
-
-    def Setup(self):
-        pass
-
-    def update(self):
-        self.board.draw(self.screen)
-
-    def place(self, pos):
-        if self.cursor.visible:
-            row, col = self.board.find_position(*pos)
-            print(row, col)
-
-
-class Disk(pygame.sprite.Sprite):
-
-    def __init__(self):
-        super().__init__(self.containers)
-        self.image = pygame.image.load('igo_black.png').convert_alpha()
-        # self.image = pygame.transform.scale(self.image, (100, 70))
-        self.image = pygame.transform.scale(self.image, (99, 90))
-        self.rect = self.image.get_rect()
-        self.rect.centerx = 385
-        self.rect.centery = 365
-
-
 class Cursor(pygame.sprite.Sprite):
 
     def __init__(self, board):
@@ -110,45 +91,105 @@ class Cursor(pygame.sprite.Sprite):
         pygame.mouse.set_visible(True)
 
 
-def main():
-    pygame.init
-    screen = pygame.display.set_mode((700, 800))
-    pygame.display.set_caption('Othello game board')
-    stones = pygame.sprite.RenderUpdates()
-    cursor = pygame.sprite.RenderUpdates()
-    Disk.containers = stones
-    Cursor.containers = cursor
+class BaseLogic:
 
-    clock = pygame.time.Clock()
-    board = Board()
-    finger = Cursor(board)
-    othello = Othello(screen, board, finger)
+    def __init__(self, disks, color):
+        self.disks = disks
+        self.color = color
 
-    while True:
-        clock.tick(60)
-        screen.fill((0, 100, 0))
-        othello.update()
-        stones.update()
-        stones.draw(screen)
+    def check_top(self, row, col, r):
+        if r > 0:
+            if self.disks[r][col] and self.disks[r][col].color != self.color:
+                return self.check_top(row, col, r - 1)
+            else:
+                if row - r > 1:
+                    return r
 
-        if finger.visible:
-            cursor.update()
-            cursor.draw(screen)
+    # def check_top(self, row, col, color):
+    #     if row - 1 > 0:
+    #         for r in range(row - 1, 0, -1):
+    #             if disk := self.disks[r][col]:
+    #                 if disk.color != color:
+    #                     continue
+    #                 if r < row - 1:
+    #                     return r
+    #                 break
+    #             break
+    #     return None
 
-        for event in pygame.event.get():
-            if event.type == QUIT:
-                pygame.quit()
-                sys.exit()
-            if event.type == MOUSEMOTION:
-                x, y = event.pos
-                finger.move(Point(*event.pos))
 
-            if event.type == MOUSEBUTTONDOWN and event.button == 1:
-                if finger.visible:
-                    othello.place(Point(*event.pos))
+class Player(BaseLogic):
 
-        pygame.display.update()
+    def __init__(self, disks, board, cursor):
+        super().__init__(disks, Piece.BLACK)
+        self.board = board
+        self.cursor = cursor
+
+    def place(self, pos):
+        if self.cursor.visible:
+            row, col = self.board.find_position(*pos)
+            print(row, col)
+            print(self.check_top(row, col, row - 1))
+            # print(self.disks[3][3].disk)
+
+
+class Opponent(BaseLogic):
+    pass
+
+
+class Othello:
+
+    def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode(SCREEN.size)
+        pygame.display.set_caption('Othello game board')
+        self.disk_group = pygame.sprite.RenderUpdates()
+        self.cursor_group = pygame.sprite.RenderUpdates()
+        Disk.containers = self.disk_group
+        Cursor.containers = self.cursor_group
+        self.board = Board()
+        self.cursor = Cursor(self.board)
+        self.disks = [[None for _ in range(self.board.cols)] for _ in range(self.board.rows)]
+        self.player = Player(self.disks, self.board, self.cursor)
+        self.setup()
+
+    def setup(self):
+        for r in range(3, 5):
+            for c in range(3, 5):
+                if r == c:
+                    disk = Disk(Piece.WHITE, self.board.grid_center(r, c))
+                else:
+                    disk = Disk(Piece.BLACK, self.board.grid_center(r, c))
+                self.disks[r][c] = disk
+
+    def run(self):
+        clock = pygame.time.Clock()
+        running = True
+
+        while running:
+            clock.tick(60)
+            self.screen.fill((0, 100, 0))
+            self.board.draw(self.screen)
+            self.disk_group.update()
+            self.disk_group.draw(self.screen)
+
+            if self.cursor.visible:
+                self.cursor_group.update()
+                self.cursor_group.draw(self.screen)
+
+            for event in pygame.event.get():
+                if event.type == QUIT:
+                    running = False
+                if event.type == MOUSEMOTION:
+                    x, y = event.pos
+                    self.cursor.move(Point(*event.pos))
+                if event.type == MOUSEBUTTONDOWN and event.button == 1:
+                    if self.cursor.visible:
+                        self.player.place(Point(*event.pos))
+
+            pygame.display.update()
 
 
 if __name__ == '__main__':
-    main()
+    game = Othello()
+    game.run()
