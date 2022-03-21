@@ -201,8 +201,7 @@ class Othello:
                 else:
                     color = Piece.BLACK
                 self.disks[r][c] = color
-                disk = Disk(color, self.board.grid_center(r, c))
-                self.board.disks[(r, c)] = disk
+                self.board.place(r, c, color)
 
     def run(self):
         clock = pygame.time.Clock()
