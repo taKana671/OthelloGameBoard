@@ -36,17 +36,17 @@ class Board:
 
     def __init__(self):
         self.grid_size = 70
-        self.rows = 8
-        self.cols = 8
+        self.grid_num = 8
         self.left = 70
         self.top = 120
-        self.right = self.left + self.rows * self.grid_size
-        self.bottom = self.top + self.rows * self.grid_size
+        self.right = self.left + self.grid_num * self.grid_size
+        self.bottom = self.top + self.grid_num * self.grid_size
+        self.disks = {}
 
     def draw(self, screen):
         x, y = self.left, self.top
 
-        for i in range(self.rows + 1):
+        for i in range(self.grid_num + 1):
             pygame.draw.line(screen, (0, 0, 0), (self.left, y), (self.right, y), 2)
             pygame.draw.line(screen, (0, 0, 0), (x, self.top), (x, self.bottom), 2)
             x += self.grid_size
@@ -61,6 +61,13 @@ class Board:
         center_y = self.top + self.grid_size * row + self.grid_size // 2
         center_x = self.left + self.grid_size * col + self.grid_size // 2
         return Point(center_x, center_y)
+
+    def place(self, row, col, color):
+        self.disks[(row, col)] = Disk(color, self.grid_center(row, col))
+
+    def reverse(self, row, col, color):
+        self.disks[(row, col)].kill()
+        self.place(row, col, color)
 
 
 class Cursor(pygame.sprite.Sprite):
@@ -91,49 +98,82 @@ class Cursor(pygame.sprite.Sprite):
         pygame.mouse.set_visible(True)
 
 
-class BaseLogic:
+class GameLogic:
 
-    def __init__(self, disks, color):
+    def __init__(self, disks, board, color):
         self.disks = disks
+        self.board = board
         self.color = color
 
-    def check_top(self, row, col, r):
-        if r > 0:
-            if self.disks[r][col] and self.disks[r][col].color != self.color:
-                return self.check_top(row, col, r - 1)
-            else:
-                if row - r > 1:
-                    return r
+    def is_placeable(self, row, col):
+        if not self.disks[row][col]:
+            for r in range(-1, 2):
+                for c in range(-1, 2):
+                    if r == 0 and c == 0:
+                        continue
+                    if row + r < 0 or row + r >= self.board.grid_num or \
+                            col + c < 0 or col + c >= self.board.grid_num:
+                        continue
+                    if not self.disks[row + r][col + c]:
+                        continue
+                    if self.disks[row + r][col + c] == self.color:
+                        continue
+                    if self.reverse_check(row + r, col + c, r, c, 0):
+                        return True
+        return False
 
-    # def check_top(self, row, col, color):
-    #     if row - 1 > 0:
-    #         for r in range(row - 1, 0, -1):
-    #             if disk := self.disks[r][col]:
-    #                 if disk.color != color:
-    #                     continue
-    #                 if r < row - 1:
-    #                     return r
-    #                 break
-    #             break
-    #     return None
+    def reverse_check(self, row, col, r, c, cnt=0):
+        if 0 <= row < self.board.grid_num and 0 <= col < self.board.grid_num:
+            if color := self.disks[row][col]:
+                if color != self.color:
+                    cnt += 1
+                    return self.reverse_check(row + r, col + c, r, c, cnt)
+                else:
+                    return cnt
+
+    def _reverse(self, row, col, r, c, cnt):
+        for i in range(cnt):
+            target_row = row + r * i
+            target_col = col + c * i
+            self.disks[target_row][target_col] = self.color
+            self.board.reverse(target_row, target_col, self.color)
+
+    def reverse(self, row, col):
+        for r in range(-1, 2):
+            for c in range(-1, 2):
+                if r == 0 and c == 0:
+                    continue
+                if row + r < 0 or row + r >= self.board.grid_num or \
+                        col + c < 0 or col + c >= self.board.grid_num:
+                    continue
+                if not self.disks[row + r][col + c]:
+                    continue
+                if self.disks[row + r][col + c] == self.color:
+                    continue
+                if cnt := self.reverse_check(row + r, col + c, r, c):
+                    self._reverse(row + r, col + c, r, c, cnt)
+
+    def place(self, row, col):
+        self.disks[row][col] = self.color
+        self.board.place(row, col, self.color)
+        self.reverse(row, col)
 
 
-class Player(BaseLogic):
+class Player(GameLogic):
 
     def __init__(self, disks, board, cursor):
-        super().__init__(disks, Piece.BLACK)
-        self.board = board
+        super().__init__(disks, board, Piece.BLACK)
         self.cursor = cursor
 
-    def place(self, pos):
+    def click(self, pos):
         if self.cursor.visible:
             row, col = self.board.find_position(*pos)
-            print(row, col)
-            print(self.check_top(row, col, row - 1))
-            # print(self.disks[3][3].disk)
+            if self.is_placeable(row, col):
+                print(f'click: row: {row}, col{col}')
+                self.place(row, col)
 
 
-class Opponent(BaseLogic):
+class Opponent(GameLogic):
     pass
 
 
@@ -149,7 +189,7 @@ class Othello:
         Cursor.containers = self.cursor_group
         self.board = Board()
         self.cursor = Cursor(self.board)
-        self.disks = [[None for _ in range(self.board.cols)] for _ in range(self.board.rows)]
+        self.disks = [[None for _ in range(self.board.grid_num)] for _ in range(self.board.grid_num)]
         self.player = Player(self.disks, self.board, self.cursor)
         self.setup()
 
@@ -157,10 +197,12 @@ class Othello:
         for r in range(3, 5):
             for c in range(3, 5):
                 if r == c:
-                    disk = Disk(Piece.WHITE, self.board.grid_center(r, c))
+                    color = Piece.WHITE
                 else:
-                    disk = Disk(Piece.BLACK, self.board.grid_center(r, c))
-                self.disks[r][c] = disk
+                    color = Piece.BLACK
+                self.disks[r][c] = color
+                disk = Disk(color, self.board.grid_center(r, c))
+                self.board.disks[(r, c)] = disk
 
     def run(self):
         clock = pygame.time.Clock()
@@ -185,7 +227,7 @@ class Othello:
                     self.cursor.move(Point(*event.pos))
                 if event.type == MOUSEBUTTONDOWN and event.button == 1:
                     if self.cursor.visible:
-                        self.player.place(Point(*event.pos))
+                        self.player.click(Point(*event.pos))
 
             pygame.display.update()
 
