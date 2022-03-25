@@ -5,10 +5,22 @@ from pathlib import Path
 from pygame.locals import *
 
 
-SCREEN = Rect(0, 0, 700, 800)
+SCREEN = Rect(0, 0, 840, 700)
 
 
 Point = namedtuple('Point', 'x y')
+Clicked = namedtuple('Clicked', 'row col')
+
+DARK_GREEN = (0, 80, 0)
+GREEN = (0, 100, 0)
+
+
+
+class Status(Enum):
+
+    THINKING = auto()
+    PLACE = auto()
+    REVERSE = auto()
 
 
 class Piece(Enum):
@@ -37,13 +49,20 @@ class Board:
     def __init__(self):
         self.grid_size = 70
         self.grid_num = 8
-        self.left = 70
-        self.top = 120
-        self.right = self.left + self.grid_num * self.grid_size
-        self.bottom = self.top + self.grid_num * self.grid_size
+        self.left = 220
+        self.top = 70
+        self.side = self.grid_num * self.grid_size
+        self.right = self.left + self.side
+        self.bottom = self.top + self.side
+        self.clicked = None
         self.disks = {}
 
     def draw(self, screen):
+        pygame.draw.rect(
+            screen, (76, 38, 0), (self.left - 20, self.top - 20, self.side + 40, self.side + 40))
+        pygame.draw.rect(
+            screen, GREEN, (self.left, self.top, self.side, self.side))
+
         x, y = self.left, self.top
 
         for i in range(self.grid_num + 1):
@@ -138,7 +157,8 @@ class GameLogic:
             self.disks[target_row][target_col] = self.color
             self.board.reverse(target_row, target_col, self.color)
 
-    def reverse(self, row, col):
+    def reverse(self):
+        row, col = self.board.clicked
         for r in range(-1, 2):
             for c in range(-1, 2):
                 if r == 0 and c == 0:
@@ -153,28 +173,60 @@ class GameLogic:
                 if cnt := self.reverse_check(row + r, col + c, r, c):
                     self._reverse(row + r, col + c, r, c, cnt)
 
-    def place(self, row, col):
+    def place_disk(self, row, col):
         self.disks[row][col] = self.color
         self.board.place(row, col, self.color)
-        self.reverse(row, col)
 
 
 class Player(GameLogic):
 
-    def __init__(self, disks, board, cursor):
+    def __init__(self, disks, board):
         super().__init__(disks, board, Piece.BLACK)
-        self.cursor = cursor
+        self.turn = True
 
-    def click(self, pos):
-        if self.cursor.visible:
-            row, col = self.board.find_position(*pos)
-            if self.is_placeable(row, col):
-                print(f'click: row: {row}, col{col}')
-                self.place(row, col)
+    def has_placeables(self):
+        for r in range(self.board.grid_num):
+            for c in range(self.board.grid_num):
+                if not self.disks[r][c]:
+                    if self.is_placeable(r, c):
+                        return True
+
+    def place(self, pos):
+        row, col = self.board.find_position(*pos)
+        if self.is_placeable(row, col):
+            self.board.clicked = Clicked(row, col)
+            self.place_disk(row, col)
+            return True
 
 
 class Opponent(GameLogic):
-    pass
+
+    def __init__(self, disks, board):
+        super().__init__(disks, board, Piece.WHITE)
+        self.turn = False
+
+    def get_placeables(self):
+        for r in range(self.board.grid_num):
+            for c in range(self.board.grid_num):
+                if not self.disks[r][c]:
+                    if self.is_placeable(r, c):
+                        yield r, c
+
+    def find_corners(self, grids):
+        for r in [0, 7]:
+            for c in [0, 7]:
+                if (r, c) in grids:
+                    return (r, c)
+
+    def place(self):
+        grids = tuple(pos for pos in self.get_placeables())
+        if corner := self.find_corners(grids):
+            self.board.clicked = Clicked(*corner)
+            self.place_disk(*corner)
+        else:
+            self.board.clicked = Clicked(*grids[0])
+            self.place_disk(*grids[0])
+        # return True
 
 
 class Othello:
@@ -187,10 +239,12 @@ class Othello:
         self.cursor_group = pygame.sprite.RenderUpdates()
         Disk.containers = self.disk_group
         Cursor.containers = self.cursor_group
+        self.status = None
         self.board = Board()
         self.cursor = Cursor(self.board)
         self.disks = [[None for _ in range(self.board.grid_num)] for _ in range(self.board.grid_num)]
-        self.player = Player(self.disks, self.board, self.cursor)
+        self.player = Player(self.disks, self.board)
+        self.opponent = Opponent(self.disks, self.board)
         self.setup()
 
     def setup(self):
@@ -203,13 +257,21 @@ class Othello:
                 self.disks[r][c] = color
                 self.board.place(r, c, color)
 
+    def change_order(self):
+        self.player.turn = not self.player.turn
+        self.opponent.turn = not self.opponent.turn
+
     def run(self):
         clock = pygame.time.Clock()
+        place_disk = pygame.USEREVENT + 1
+        reverse_disks = pygame.USEREVENT + 2
+        pass_turn = pygame.USEREVENT + 3
+
         running = True
 
         while running:
             clock.tick(60)
-            self.screen.fill((0, 100, 0))
+            self.screen.fill((221, 221, 221))   #(0,70, 0))
             self.board.draw(self.screen)
             self.disk_group.update()
             self.disk_group.draw(self.screen)
@@ -224,9 +286,29 @@ class Othello:
                 if event.type == MOUSEMOTION:
                     x, y = event.pos
                     self.cursor.move(Point(*event.pos))
-                if event.type == MOUSEBUTTONDOWN and event.button == 1:
-                    if self.cursor.visible:
-                        self.player.click(Point(*event.pos))
+
+                if event.type == reverse_disks:
+                    pygame.time.set_timer(reverse_disks, 0)
+                    if self.player.turn:
+                        self.player.reverse()
+                        pygame.time.set_timer(place_disk, 2000)
+                    else:
+                        self.opponent.reverse()
+                    self.change_order()
+                if event.type == place_disk:
+                    pygame.time.set_timer(place_disk, 0)
+                    self.opponent.place()
+                    pygame.time.set_timer(reverse_disks, 2000)
+
+                # if event.type == MOUSEBUTTONDOWN and event.button == 1:
+                if event.type == MOUSEBUTTONUP and event.button == 1:
+                    if self.player.turn and self.cursor.visible:
+                        if self.player.has_placeables():
+                            if self.player.place(Point(*event.pos)):
+                                pygame.time.set_timer(reverse_disks, 2000)
+                        else:
+                            pass
+                            # pygame.time.set_timer(event, millis)
 
             pygame.display.update()
 
