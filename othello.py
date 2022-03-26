@@ -11,26 +11,33 @@ SCREEN = Rect(0, 0, 840, 700)
 Point = namedtuple('Point', 'x y')
 Clicked = namedtuple('Clicked', 'row col')
 
-DARK_GREEN = (0, 80, 0)
+DARK_GREEN = (0, 70, 0)
 GREEN = (0, 100, 0)
-
+BROWN = (76, 38, 0)
 
 
 class Status(Enum):
-
-    THINKING = auto()
-    PLACE = auto()
-    REVERSE = auto()
+    pass
 
 
-class Piece(Enum):
-
-    BLACK = 0
-    WHITE = 1
+class Files(Enum):
 
     @property
     def filepath(self):
         return Path('images', f'{self.name.lower()}.png')
+
+
+class Piece(Files):
+
+    BLACK = 0
+    WHITE = 1
+
+
+class Images(Files):
+
+    BLACK_DISPLAY = auto()
+    WHITE_DISPLAY = auto()
+    CURSOR = auto()
 
 
 class Disk(pygame.sprite.Sprite):
@@ -44,9 +51,19 @@ class Disk(pygame.sprite.Sprite):
         self.color = disk
 
 
+class DisplayDisk(pygame.sprite.Sprite):
+
+    def __init__(self, file_path):
+        super().__init__(self.containers)
+        self.image = pygame.image.load(file_path).convert_alpha()
+        self.image = pygame.transform.scale(self.image, (150, 105))
+        self.rect = self.image.get_rect()
+        self.rect.centerx, self.rect.centery = Point(80, 180)
+
+
 class Board:
 
-    def __init__(self):
+    def __init__(self, display_group):
         self.grid_size = 70
         self.grid_num = 8
         self.left = 220
@@ -56,12 +73,34 @@ class Board:
         self.bottom = self.top + self.side
         self.clicked = None
         self.disks = {}
+        self.display_group = display_group
+        self.title_font = pygame.font.SysFont(None, 50)
+
+    def draw_background(self, screen):
+        pygame.draw.rect(
+            screen,
+            BROWN,
+            (self.left - 20, self.top - 20, self.side + 40, self.side + 40)
+        )
+        pygame.draw.rect(
+            screen,
+            GREEN,
+            (self.left, self.top, self.side, self.side)
+        )
+
+    def draw_turn_display(self, screen):
+        pygame.draw.rect(screen, GREEN, (40, self.top + 70, 80, 100))
+        pygame.draw.ellipse(screen, DARK_GREEN, Rect(50, 220, 60, 10), width=0)
+        text = self.title_font.render('TURN', True, (0, 0, 0))
+        screen.blit(text, (40, self.top))
+
+    def set_turn_display(self, disk):
+        disk = DisplayDisk(disk.filepath)
+        self.display_group.add(disk)
 
     def draw(self, screen):
-        pygame.draw.rect(
-            screen, (76, 38, 0), (self.left - 20, self.top - 20, self.side + 40, self.side + 40))
-        pygame.draw.rect(
-            screen, GREEN, (self.left, self.top, self.side, self.side))
+        self.draw_background(screen)
+        self.draw_turn_display(screen)
 
         x, y = self.left, self.top
 
@@ -183,6 +222,7 @@ class Player(GameLogic):
     def __init__(self, disks, board):
         super().__init__(disks, board, Piece.BLACK)
         self.turn = True
+        self.display_disk = Images.BLACK_DISPLAY
 
     def has_placeables(self):
         for r in range(self.board.grid_num):
@@ -204,6 +244,7 @@ class Opponent(GameLogic):
     def __init__(self, disks, board):
         super().__init__(disks, board, Piece.WHITE)
         self.turn = False
+        self.display_disk = Images.WHITE_DISPLAY
 
     def get_placeables(self):
         for r in range(self.board.grid_num):
@@ -237,10 +278,12 @@ class Othello:
         pygame.display.set_caption('Othello game board')
         self.disk_group = pygame.sprite.RenderUpdates()
         self.cursor_group = pygame.sprite.RenderUpdates()
+        self.display_group = pygame.sprite.GroupSingle()
         Disk.containers = self.disk_group
         Cursor.containers = self.cursor_group
+        DisplayDisk.containers = self.display_group
         self.status = None
-        self.board = Board()
+        self.board = Board(self.display_group)
         self.cursor = Cursor(self.board)
         self.disks = [[None for _ in range(self.board.grid_num)] for _ in range(self.board.grid_num)]
         self.player = Player(self.disks, self.board)
@@ -260,6 +303,8 @@ class Othello:
     def change_order(self):
         self.player.turn = not self.player.turn
         self.opponent.turn = not self.opponent.turn
+        next_player = self.player if self.player.turn else self.opponent
+        self.board.set_turn_display(next_player.display_disk)
 
     def run(self):
         clock = pygame.time.Clock()
@@ -267,6 +312,7 @@ class Othello:
         reverse_disks = pygame.USEREVENT + 2
         pass_turn = pygame.USEREVENT + 3
 
+        self.board.set_turn_display(self.player.display_disk)
         running = True
 
         while running:
@@ -275,6 +321,8 @@ class Othello:
             self.board.draw(self.screen)
             self.disk_group.update()
             self.disk_group.draw(self.screen)
+            self.display_group.update()
+            self.display_group.draw(self.screen)
 
             if self.cursor.visible:
                 self.cursor_group.update()
