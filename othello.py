@@ -4,6 +4,7 @@ from enum import Enum, auto
 from pathlib import Path
 from pygame.locals import *
 
+import random
 
 SCREEN = Rect(0, 0, 840, 700)
 
@@ -14,6 +15,8 @@ Clicked = namedtuple('Clicked', 'row col')
 DARK_GREEN = (0, 70, 0)
 GREEN = (0, 100, 0)
 BROWN = (76, 38, 0)
+RED = (255, 0, 0)
+BLACK = (0, 0, 0)
 
 
 class Status(Enum):
@@ -72,9 +75,19 @@ class Board:
         self.right = self.left + self.side
         self.bottom = self.top + self.side
         self.clicked = None
+        self.show_pass = False
         self.disks = {}
         self.display_group = display_group
-        self.title_font = pygame.font.SysFont(None, 50)
+        self.setup_displays()
+
+    def setup_displays(self):
+        _ = Disk(Piece.BLACK, Point(80, 390))
+        _ = Disk(Piece.WHITE, Point(80, 455))
+        title_font = pygame.font.SysFont(None, 50)
+        self.text_turn = title_font.render('TURN', True, BLACK)
+        self.text_score = title_font.render('SCORE', True, BLACK)
+        self.text_font = pygame.font.SysFont(None, 30)
+        self.text_pass = self.text_font.render('PASS', True, RED)
 
     def draw_background(self, screen):
         pygame.draw.rect(
@@ -91,16 +104,22 @@ class Board:
     def draw_turn_display(self, screen):
         pygame.draw.rect(screen, GREEN, (40, self.top + 70, 80, 100))
         pygame.draw.ellipse(screen, DARK_GREEN, Rect(50, 220, 60, 10), width=0)
-        text = self.title_font.render('TURN', True, (0, 0, 0))
-        screen.blit(text, (40, self.top))
+        screen.blit(self.text_turn, (35, self.top + 10))
+        if self.show_pass:
+            screen.blit(self.text_pass, (130, 180))
 
     def set_turn_display(self, disk):
         disk = DisplayDisk(disk.filepath)
         self.display_group.add(disk)
 
+    def draw_score_display(self, screen):
+        pygame.draw.rect(screen, GREEN, (40, self.top + 280, 80, 150))
+        screen.blit(self.text_score, (25, self.top + 220))
+
     def draw(self, screen):
         self.draw_background(screen)
         self.draw_turn_display(screen)
+        self.draw_score_display(screen)
 
         x, y = self.left, self.top
 
@@ -124,7 +143,7 @@ class Board:
         self.disks[(row, col)] = Disk(color, self.grid_center(row, col))
 
     def reverse(self, row, col, color):
-        self.disks[(row, col)].kill()
+        self.disks[(row, col)] = self.disks[(row, col)].kill()
         self.place(row, col, color)
 
 
@@ -162,6 +181,14 @@ class GameLogic:
         self.disks = disks
         self.board = board
         self.color = color
+
+    def has_placeables(self):
+        for r in range(self.board.grid_num):
+            for c in range(self.board.grid_num):
+                if not self.disks[r][c]:
+                    if self.is_placeable(r, c):
+                        return True
+        return False
 
     def is_placeable(self, row, col):
         if not self.disks[row][col]:
@@ -224,13 +251,6 @@ class Player(GameLogic):
         self.turn = True
         self.display_disk = Images.BLACK_DISPLAY
 
-    def has_placeables(self):
-        for r in range(self.board.grid_num):
-            for c in range(self.board.grid_num):
-                if not self.disks[r][c]:
-                    if self.is_placeable(r, c):
-                        return True
-
     def place(self, pos):
         row, col = self.board.find_position(*pos)
         if self.is_placeable(row, col):
@@ -239,7 +259,7 @@ class Player(GameLogic):
             return True
 
 
-class Opponent(GameLogic):
+class OtherPlayer(GameLogic):
 
     def __init__(self, disks, board):
         super().__init__(disks, board, Piece.WHITE)
@@ -267,7 +287,6 @@ class Opponent(GameLogic):
         else:
             self.board.clicked = Clicked(*grids[0])
             self.place_disk(*grids[0])
-        # return True
 
 
 class Othello:
@@ -287,8 +306,16 @@ class Othello:
         self.cursor = Cursor(self.board)
         self.disks = [[None for _ in range(self.board.grid_num)] for _ in range(self.board.grid_num)]
         self.player = Player(self.disks, self.board)
-        self.opponent = Opponent(self.disks, self.board)
+        self.other = OtherPlayer(self.disks, self.board)
+        self.create_events()
         self.setup()
+
+    def create_events(self):
+        self._place = pygame.USEREVENT + 0
+        self._reverse = pygame.USEREVENT + 1
+        self._change = pygame.USEREVENT + 2
+        self._guess = pygame.USEREVENT + 3
+        self._pass = pygame.USEREVENT + 4
 
     def setup(self):
         for r in range(3, 5):
@@ -300,17 +327,48 @@ class Othello:
                 self.disks[r][c] = color
                 self.board.place(r, c, color)
 
-    def change_order(self):
+    def click(self, click_pos):
+        if self.player.turn and self.cursor.visible:
+            if self.player.has_placeables():
+                if self.player.place(Point(*click_pos)):
+                    pygame.time.set_timer(self._reverse, 1000)
+
+    def place_disk(self):
+        pygame.time.set_timer(self._place, 0)
+        self.other.place()
+        pygame.time.set_timer(self._reverse, 1000)
+
+    def reverse_disks(self):
+        pygame.time.set_timer(self._reverse, 0)
+        current_player = self.player if self.player.turn else self.other
+        current_player.reverse()
+        pygame.time.set_timer(self._change, 1000)
+
+    def pass_turn(self):
+        pygame.time.set_timer(self._pass, 0)
+        self.board.show_pass = False
+        pygame.time.set_timer(self._change, 200)
+
+    def change_players(self):
+        pygame.time.set_timer(self._change, 0)
         self.player.turn = not self.player.turn
-        self.opponent.turn = not self.opponent.turn
-        next_player = self.player if self.player.turn else self.opponent
+        self.other.turn = not self.other.turn
+        next_player = self.player if self.player.turn else self.other
         self.board.set_turn_display(next_player.display_disk)
+        pygame.time.set_timer(self._guess, 1000)
+
+    def guess_placeable(self):
+        pygame.time.set_timer(self._guess, 0)
+        current_player = self.player if self.player.turn else self.other
+        if not current_player.has_placeables():
+            self.board.show_pass = True
+            pygame.time.set_timer(self._pass, 1000)
+        else:
+            if self.other.turn:
+                pygame.time.set_timer(self._place, 1000)
 
     def run(self):
         clock = pygame.time.Clock()
-        place_disk = pygame.USEREVENT + 1
-        reverse_disks = pygame.USEREVENT + 2
-        pass_turn = pygame.USEREVENT + 3
 
         self.board.set_turn_display(self.player.display_disk)
         running = True
@@ -334,29 +392,19 @@ class Othello:
                 if event.type == MOUSEMOTION:
                     x, y = event.pos
                     self.cursor.move(Point(*event.pos))
-
-                if event.type == reverse_disks:
-                    pygame.time.set_timer(reverse_disks, 0)
-                    if self.player.turn:
-                        self.player.reverse()
-                        pygame.time.set_timer(place_disk, 2000)
-                    else:
-                        self.opponent.reverse()
-                    self.change_order()
-                if event.type == place_disk:
-                    pygame.time.set_timer(place_disk, 0)
-                    self.opponent.place()
-                    pygame.time.set_timer(reverse_disks, 2000)
-
+                if event.type == self._reverse:
+                    self.reverse_disks()
+                if event.type == self._place:
+                    self.place_disk()
+                if event.type == self._change:
+                    self.change_players()
+                if event.type == self._guess:
+                    self.guess_placeable()
+                if event.type == self._pass:
+                    self.pass_turn()
                 # if event.type == MOUSEBUTTONDOWN and event.button == 1:
                 if event.type == MOUSEBUTTONUP and event.button == 1:
-                    if self.player.turn and self.cursor.visible:
-                        if self.player.has_placeables():
-                            if self.player.place(Point(*event.pos)):
-                                pygame.time.set_timer(reverse_disks, 2000)
-                        else:
-                            pass
-                            # pygame.time.set_timer(event, millis)
+                    self.click(event.pos)
 
             pygame.display.update()
 
