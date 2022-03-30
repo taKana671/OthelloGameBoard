@@ -224,14 +224,14 @@ class GameLogic:
                 else:
                     return cnt
 
-    def _reverse(self, row, col, r, c, cnt):
+    def get_reversibles(self, row, col, r, c, cnt):
         for i in range(cnt):
             target_row = row + r * i
             target_col = col + c * i
-            self.board.reverse(target_row, target_col, self.color)
 
-    def reverse(self):
-        row, col = self.board.clicked
+            yield (target_row, target_col)
+
+    def find_reversibles(self, row, col):
         for r in range(-1, 2):
             for c in range(-1, 2):
                 if r == 0 and c == 0:
@@ -244,7 +244,11 @@ class GameLogic:
                 if self.board.disks[row + r][col + c] == self.color:
                     continue
                 if cnt := self.reverse_check(row + r, col + c, r, c):
-                    self._reverse(row + r, col + c, r, c, cnt)
+                    yield from self.get_reversibles(row + r, col + c, r, c, cnt)
+
+    def reverse(self):
+        for row, col in self.find_reversibles(*self.board.clicked):
+            self.board.reverse(row, col, self.color)
 
 
 class Player(GameLogic):
@@ -258,7 +262,7 @@ class Player(GameLogic):
         row, col = self.board.find_position(*pos)
         if self.is_placeable(row, col):
             self.board.clicked = Clicked(row, col)
-            self.board.place(row, col, self.color)
+            self.board.place(*self.board.clicked, self.color)
             return True
 
 
@@ -268,6 +272,16 @@ class OtherPlayer(GameLogic):
         super().__init__(board, Piece.WHITE)
         self.turn = False
         self.display_disk = Images.WHITE_DISPLAY
+        self.weight = [
+            [30, -12, 0, -1, -1, 0, -12, 30],
+            [-12, -15, -3, -3, -3, -3, -15, -12],
+            [0, -3, 0, -1, -1, 0, -3, 0],
+            [-1, -3, -1, -1, -1, -1, -3, -1],
+            [-1, -3, -1, -1, -1, -1, -3, -1],
+            [0, -3, 0, -1, -1, 0, -3, 0],
+            [-12, -15, -3, -3, -3, -3, -15, -12],
+            [30, -12, 0, -1, -1, 0, -12, 30]
+        ]
 
     def get_placeables(self):
         for r in range(self.board.grid_num):
@@ -286,10 +300,10 @@ class OtherPlayer(GameLogic):
         grids = tuple(pos for pos in self.get_placeables())
         if corner := self.find_corners(grids):
             self.board.clicked = Clicked(*corner)
-            self.board.place(*corner, self.color)
+            self.board.place(*self.board.clicked, self.color)
         else:
             self.board.clicked = Clicked(*grids[0])
-            self.board.place(*grids[0], self.color)
+            self.board.place(*self.board.clicked, self.color)
 
 
 class Othello:
@@ -329,7 +343,6 @@ class Othello:
                     color = Piece.WHITE
                 else:
                     color = Piece.BLACK
-                self.disks[r][c] = color
                 self.board.place(r, c, color)
 
     def calc_score(self):
