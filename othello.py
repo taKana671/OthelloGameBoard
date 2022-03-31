@@ -10,7 +10,7 @@ SCREEN = Rect(0, 0, 840, 700)
 
 
 Point = namedtuple('Point', 'x y')
-Clicked = namedtuple('Clicked', 'row col')
+Candidate = namedtuple('Candidate', 'diff row col')
 
 DARK_GREEN = (0, 70, 0)
 GREEN = (0, 100, 0)
@@ -77,7 +77,6 @@ class Board:
         self.side = self.grid_num * self.grid_size
         self.right = self.left + self.side
         self.bottom = self.top + self.side
-        self.clicked = None
         self.show_pass = False
         self.disks = disks
         self.display_group = display_group
@@ -149,6 +148,7 @@ class Board:
         return Point(center_x, center_y)
 
     def place(self, row, col, color):
+        self.clicked = (row, col)
         self.disks[row][col] = Disk(color, self.grid_center(row, col))
 
     def reverse(self, row, col, color):
@@ -261,8 +261,7 @@ class Player(GameLogic):
     def place(self, pos):
         row, col = self.board.find_position(*pos)
         if self.is_placeable(row, col):
-            self.board.clicked = Clicked(row, col)
-            self.board.place(*self.board.clicked, self.color)
+            self.board.place(row, col, self.color)
             return True
 
 
@@ -272,7 +271,7 @@ class OtherPlayer(GameLogic):
         super().__init__(board, Piece.WHITE)
         self.turn = False
         self.display_disk = Images.WHITE_DISPLAY
-        self.weight = [
+        self.weights = [
             [30, -12, 0, -1, -1, 0, -12, 30],
             [-12, -15, -3, -3, -3, -3, -15, -12],
             [0, -3, 0, -1, -1, 0, -3, 0],
@@ -296,14 +295,38 @@ class OtherPlayer(GameLogic):
                 if (r, c) in grids:
                     return (r, c)
 
+    def calc_weights(self):
+        black = white = 0
+        for r in range(self.board.grid_num):
+            for c in range(self.board.grid_num):
+                if disk := self.board.disks[r][c]:
+                    if disk.color == Piece.BLACK:
+                        black += self.weights[r][c]
+                    else:
+                        white += self.weights[r][c]
+        return black, white
+
+    def find_candidates(self, grids):
+        b, w = self.calc_weights()
+
+        for r, c in grids:
+            # print(r, c)
+            black = b
+            white = w + self.weights[r][c]
+            for row, col in self.find_reversibles(r, c):
+                weight = self.weights[row][col]
+                black -= weight
+                white += weight
+            # print(black, white)
+            yield Candidate(white - black, r, c)
+
     def place(self):
         grids = tuple(pos for pos in self.get_placeables())
-        if corner := self.find_corners(grids):
-            self.board.clicked = Clicked(*corner)
-            self.board.place(*self.board.clicked, self.color)
-        else:
-            self.board.clicked = Clicked(*grids[0])
-            self.board.place(*self.board.clicked, self.color)
+        candidate = max(
+            (cand for cand in self.find_candidates(grids)),
+            key=lambda x: x.diff
+        )
+        self.board.place(candidate.row, candidate.col, self.color)
 
 
 class Othello:
