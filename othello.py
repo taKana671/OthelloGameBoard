@@ -10,7 +10,7 @@ SCREEN = Rect(0, 0, 840, 700)
 
 
 Point = namedtuple('Point', 'x y')
-Candidate = namedtuple('Candidate', 'diff row col')
+Candidate = namedtuple('Candidate', 'value row col')
 
 DARK_GREEN = (0, 70, 0)
 GREEN = (0, 100, 0)
@@ -200,18 +200,18 @@ class GameLogic:
 
     def is_placeable(self, row, col):
         if not self.board.disks[row][col]:
-            for r in range(-1, 2):
-                for c in range(-1, 2):
-                    if r == 0 and c == 0:
+            for i in range(-1, 2):
+                for j in range(-1, 2):
+                    if i == 0 and j == 0:
                         continue
-                    if row + r < 0 or row + r >= self.board.grid_num or \
-                            col + c < 0 or col + c >= self.board.grid_num:
+                    if row + i < 0 or row + i >= self.board.grid_num or \
+                            col + j < 0 or col + j >= self.board.grid_num:
                         continue
-                    if not self.board.disks[row + r][col + c]:
+                    if not self.board.disks[row + i][col + j]:
                         continue
-                    if self.board.disks[row + r][col + c].color == self.color:
+                    if self.board.disks[row + i][col + j].color == self.color:
                         continue
-                    if self.reverse_check(row + r, col + c, r, c, 0):
+                    if self.reverse_check(row + i, col + j, i, j, 0):
                         return True
         return False
 
@@ -281,6 +281,10 @@ class OtherPlayer(GameLogic):
             [-12, -15, -3, -3, -3, -3, -15, -12],
             [30, -12, 0, -1, -1, 0, -12, 30]
         ]
+        self.corner_grids = [
+            (0, 1), (0, 6), (1, 0), (1, 1), (1, 6), (1, 7),
+            (6, 0), (6, 1), (6, 6), (6, 7), (7, 1), (7, 6)
+        ]
 
     def get_placeables(self):
         for r in range(self.board.grid_num):
@@ -306,27 +310,54 @@ class OtherPlayer(GameLogic):
                         white += self.weights[r][c]
         return black, white
 
-    def find_candidates(self, grids):
+    def find_candidates_with_weight(self, grids):
         b, w = self.calc_weights()
 
         for r, c in grids:
-            # print(r, c)
             black = b
             white = w + self.weights[r][c]
             for row, col in self.find_reversibles(r, c):
                 weight = self.weights[row][col]
                 black -= weight
                 white += weight
-            # print(black, white)
             yield Candidate(white - black, r, c)
+
+    def measure_openness(self, row, col, *pos):
+        total = 0
+        for i in range(-1, 2):
+            for j in range(-1, 2):
+                if i == 0 and j == 0:
+                    continue
+                if row + i < 0 or row + i >= self.board.grid_num or \
+                        col + j < 0 or col + j >= self.board.grid_num:
+                    continue
+                if (row + i, col + j) == pos:
+                    continue
+                if not self.board.disks[row + i][col + j]:
+                    total += 1
+        return total
+
+    def find_candidates_with_openness(self, grids):
+        grids = [pos for pos in grids if pos not in self.corner_grids]
+
+        for r, c in grids:
+            total = 0
+            for row, col in self.find_reversibles(r, c):
+                total += self.measure_openness(row, col, r, c)
+            if total <= 2:
+                yield Candidate(total, r, c)
 
     def place(self):
         grids = tuple(pos for pos in self.get_placeables())
-        candidate = max(
-            (cand for cand in self.find_candidates(grids)),
-            key=lambda x: x.diff
-        )
-        self.board.place(candidate.row, candidate.col, self.color)
+        if pos := self.find_corners(grids):
+            self.board.place(*pos, self.color)
+        elif candidates := [cand for cand in self.find_candidates_with_openness(grids)]:
+            pos = min(candidates, key=lambda x: x.value)
+            print('openness', pos)
+            self.board.place(pos.row, pos.col, self.color)
+        elif candidates := [cand for cand in self.find_candidates_with_weight(grids)]:
+            pos = max(candidates, key=lambda x: x.value)
+            self.board.place(pos.row, pos.col, self.color)
 
 
 class Othello:
