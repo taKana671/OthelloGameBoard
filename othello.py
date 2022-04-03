@@ -17,6 +17,7 @@ GREEN = (0, 100, 0)
 BROWN = (76, 38, 0)
 RED = (255, 0, 0)
 BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
 
 
 class Status(Enum):
@@ -66,6 +67,15 @@ class DisplayDisk(pygame.sprite.Sprite):
         self.rect.centerx, self.rect.centery = Point(80, 180)
 
 
+class Button(pygame.sprite.Sprite):
+
+    def __init__(self, file_path, center):
+        super().__init__(self.containers)
+        self.image = pygame.image.load(file_path).convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.centerx, self.rect.centery = center
+
+
 class Board:
 
     grid_num = 8
@@ -86,6 +96,7 @@ class Board:
     def set_displays(self):
         _ = Disk(Piece.BLACK, Point(80, 390))
         _ = Disk(Piece.WHITE, Point(80, 455))
+        self.button = Button('images/button.png', Point(102, self.top + 510))
         title_font = pygame.font.SysFont(None, 50)
         self.text_turn = title_font.render('TURN', True, BLACK)
         self.text_score = title_font.render('SCORE', True, BLACK)
@@ -124,10 +135,14 @@ class Board:
         screen.blit(black_score, Point(140, 380))
         screen.blit(white_score, Point(140, 445))
 
+    def draw_button(self, screen):
+        pygame.draw.rect(screen, WHITE, (40, self.top + 490, 125, 40))
+
     def draw(self, screen):
         self.draw_background(screen)
         self.draw_turn_display(screen)
         self.draw_score_display(screen)
+        self.draw_button(screen)
 
         x, y = self.left, self.top
 
@@ -344,7 +359,7 @@ class OtherPlayer(GameLogic):
             total = 0
             for row, col in self.find_reversibles(r, c):
                 total += self.measure_openness(row, col, r, c)
-            if total <= 2:
+            if total == 0:
                 yield Candidate(total, r, c)
 
     def place(self):
@@ -356,7 +371,10 @@ class OtherPlayer(GameLogic):
             print('openness', pos)
             self.board.place(pos.row, pos.col, self.color)
         elif candidates := [cand for cand in self.find_candidates_with_weight(grids)]:
-            pos = max(candidates, key=lambda x: x.value)
+            if filtered := [cand for cand in candidates if (cand.row, cand.col) not in self.corner_grids]:
+                pos = max(filtered, key=lambda x: x.value)
+            else:
+                pos = max(candidates, key=lambda x: x.value)
             self.board.place(pos.row, pos.col, self.color)
 
 
@@ -372,6 +390,7 @@ class Othello:
         Disk.containers = self.disk_group
         Cursor.containers = self.cursor_group
         DisplayDisk.containers = self.display_group
+        Button.containers = self.disk_group
         self.timer = 0
         self.event = None
         self.status = Status.PLAY
@@ -410,6 +429,20 @@ class Othello:
             return False
         return True
 
+    def delete_disks(self):
+        for r in range(Board.grid_num):
+            for c in range(Board.grid_num):
+                if disk := self.disks[r][c]:
+                    self.disks[r][c] = disk.kill()
+
+    def restart_game(self):
+        self.timer = 0
+        self.event = None
+        self.delete_disks()
+        self.setup()
+        self.board.black_score = self.board.white_score = ''
+        self.board.set_turn(self.player.display_disk)
+
     def set_timer(self, event_type, t=40):
         """Using pygame.set_timer resulted in program crash, but no errors
            were raised.
@@ -419,10 +452,14 @@ class Othello:
         self.timer = t
 
     def click(self, click_pos):
-        if self.player.turn and self.cursor.visible:
-            if self.player.has_placeables():
-                if self.player.place(Point(*click_pos)):
-                    self.set_timer(self._reverse)
+        if self.board.button.rect.collidepoint(*click_pos):
+            # print('New Game')
+            self.restart_game()
+        else:
+            if self.player.turn and self.cursor.visible:
+                if self.player.has_placeables():
+                    if self.player.place(Point(*click_pos)):
+                        self.set_timer(self._reverse)
 
     def place_disk(self):
         self.other.place()
