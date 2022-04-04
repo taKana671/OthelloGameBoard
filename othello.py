@@ -1,3 +1,4 @@
+import copy
 import pygame
 from collections import namedtuple
 from enum import Enum, auto
@@ -296,10 +297,13 @@ class OtherPlayer(GameLogic):
             [-12, -15, -3, -3, -3, -3, -15, -12],
             [30, -12, 0, -1, -1, 0, -12, 30]
         ]
-        self.corner_grids = [
-            (0, 1), (0, 6), (1, 0), (1, 1), (1, 6), (1, 7),
-            (6, 0), (6, 1), (6, 6), (6, 7), (7, 1), (7, 6)
+        self.around_corners = [
+            [(0, 1), (1, 0), (1, 1)],
+            [(0, 6), (1, 6), (1, 7)],
+            [(6, 0), (6, 1), (7, 1)],
+            [(6, 6), (6, 7), (7, 6)]
         ]
+        self.corners = [(0, 0), (0, 7), (7, 0), (7, 7)]
 
     def get_placeables(self):
         for r in range(self.board.grid_num):
@@ -309,33 +313,45 @@ class OtherPlayer(GameLogic):
                         yield r, c
 
     def find_corners(self, grids):
-        for r in [0, 7]:
-            for c in [0, 7]:
-                if (r, c) in grids:
-                    return (r, c)
+        for pos in grids:
+            if pos in self.corners:
+                return pos
 
-    def calc_weights(self):
+    def calc_weights(self, disks):
         black = white = 0
-        for r in range(self.board.grid_num):
-            for c in range(self.board.grid_num):
-                if disk := self.board.disks[r][c]:
-                    if disk.color == Piece.BLACK:
-                        black += self.weights[r][c]
-                    else:
-                        white += self.weights[r][c]
+        for r in range(Board.grid_num):
+            for c in range(Board.grid_num):
+                if not disks[r][c]:
+                    continue
+                if disks[r][c] == Piece.BLACK:
+                    black += self.weights[r][c]
+                else:
+                    white += self.weights[r][c]
         return black, white
 
-    def find_candidates_with_weight(self, grids):
-        b, w = self.calc_weights()
-
+    def find_candidates_with_weight(self, grids, disks):
         for r, c in grids:
-            black = b
-            white = w + self.weights[r][c]
+            temp = copy.deepcopy(disks)
+            temp[r][c] = Piece.WHITE
             for row, col in self.find_reversibles(r, c):
-                weight = self.weights[row][col]
-                black -= weight
-                white += weight
+                temp[row][col] = Piece.WHITE
+            black, white = self.calc_weights(temp)
             yield Candidate(white - black, r, c)
+
+
+
+
+
+        # b, w = self.calc_weights()
+
+        # for r, c in grids:
+        #     black = b
+        #     white = w + self.weights[r][c]
+        #     for row, col in self.find_reversibles(r, c):
+        #         weight = self.weights[row][col]
+        #         black -= weight
+        #         white += weight
+        #     yield Candidate(white - black, r, c)
 
     def measure_openness(self, row, col, *pos):
         total = 0
@@ -362,20 +378,97 @@ class OtherPlayer(GameLogic):
             if total == 0:
                 yield Candidate(total, r, c)
 
+    def _corners(self, disks):
+        corner_black = corner_white = 0
+
+        for r, c in self.corners:
+            if not disks[r][c]:
+                continue
+            if disks[r][c] == self.color:
+                corner_white += 1
+            else:
+                corner_black += 1
+
+        return corner_black, corner_white
+
+    def _non_corners(self, disks):
+        not_corner_black = not_corner_white = 0
+
+        for r in range(Board.grid_num):
+            for c in range(Board.grid_num):
+                if (r, c) in self.corners:
+                    continue
+                if not disks[r][c]:
+                    continue
+                if disks[r][c] == self.color:
+                    not_corner_white += 1
+                else:
+                    not_corner_black += 1
+        return not_corner_black, not_corner_white
+
+    def _around_corners(self, disks):
+        around_black = around_white = 0
+
+        for (row, col), around_corners in zip(self.corners, self.around_corners):
+            if not disks[row][col]:
+                for r, c in around_corners:
+                    if not disks[r][c]:
+                        continue
+                    if disks[r][c] == self.color:
+                        around_white += 1
+                    else:
+                        around_black += 1
+
+        return around_black, around_white
+
+    def copy_current_board(self):
+        disks = [[None for _ in range(Board.grid_num)] for _ in range(Board.grid_num)]
+
+        for r in range(self.board.grid_num):
+            for c in range(self.board.grid_num):
+                if disk := self.board.disks[r][c]:
+                    disks[r][c] = disk.color
+        return disks
+
+    def evaluate(self, grids, disks):
+        for r, c in grids:
+            temp = copy.deepcopy(disks)
+            temp[r][c] = Piece.WHITE
+            # print(temp)
+            for row, col in self.find_reversibles(r, c):
+                temp[row][col] = Piece.WHITE
+            corner_black, corner_white = self._corners(temp)
+            not_corner_black, not_corner_white = self._non_corners(temp)
+            around_black, around_white = self._around_corners(temp)
+            evaluation = (corner_white - corner_black) - (not_corner_white - not_corner_black) \
+                + 21 * (corner_white - corner_black) - 10 * (corner_white - around_black)
+            yield Candidate(evaluation, r, c)
+
     def place(self):
         grids = tuple(pos for pos in self.get_placeables())
+        disks = self.copy_current_board()
+
         if pos := self.find_corners(grids):
             self.board.place(*pos, self.color)
-        elif candidates := [cand for cand in self.find_candidates_with_openness(grids)]:
-            pos = min(candidates, key=lambda x: x.value)
-            print('openness', pos)
+        else:
+            cands = [cand for cand in self.find_candidates_with_weight(grids, disks)]
+            print(cands)
+
+            candidates = [cand for cand in self.evaluate(grids, disks)]
+            print(candidates)
+            pos = max(candidates, key=lambda x: x.value)
             self.board.place(pos.row, pos.col, self.color)
-        elif candidates := [cand for cand in self.find_candidates_with_weight(grids)]:
-            if filtered := [cand for cand in candidates if (cand.row, cand.col) not in self.corner_grids]:
-                pos = max(filtered, key=lambda x: x.value)
-            else:
-                pos = max(candidates, key=lambda x: x.value)
-            self.board.place(pos.row, pos.col, self.color)
+
+        # elif candidates := [cand for cand in self.find_candidates_with_openness(grids)]:
+        #     pos = min(candidates, key=lambda x: x.value)
+        #     print('openness', pos)
+        #     self.board.place(pos.row, pos.col, self.color)
+        # elif candidates := [cand for cand in self.find_candidates_with_weight(grids)]:
+        #     if filtered := [cand for cand in candidates if (cand.row, cand.col) not in self.corner_grids]:
+        #         pos = max(filtered, key=lambda x: x.value)
+        #     else:
+        #         pos = max(candidates, key=lambda x: x.value)
+        #     self.board.place(pos.row, pos.col, self.color)
 
 
 class Othello:
