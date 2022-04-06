@@ -39,6 +39,10 @@ class Piece(Files):
     BLACK = 0
     WHITE = 1
 
+    @property
+    def color(self):
+        return self.value
+
 
 class Images(Files):
 
@@ -203,40 +207,43 @@ class Cursor(pygame.sprite.Sprite):
 
 class GameLogic:
 
-    def __init__(self, board, color):
-        self.board = board
-        self.color = color
-
-    def has_placeables(self):
-        for r in range(self.board.grid_num):
-            for c in range(self.board.grid_num):
-                if self.is_placeable(r, c):
+    def has_placeables(self, disks, color):
+        for r in range(Board.grid_num):
+            for c in range(Board.grid_num):
+                if self.is_placeable(r, c, disks, color):
                     return True
         return False
 
-    def is_placeable(self, row, col):
-        if not self.board.disks[row][col]:
+    # def has_placeables(self):
+    #     for r in range(Board.grid_num):
+    #         for c in range(Board.grid_num):
+    #             if self.is_placeable(r, c, ):
+    #                 return True
+    #     return False
+
+    def is_placeable(self, row, col, disks, color):
+        if not disks[row][col]:
             for i in range(-1, 2):
                 for j in range(-1, 2):
                     if i == 0 and j == 0:
                         continue
-                    if row + i < 0 or row + i >= self.board.grid_num or \
-                            col + j < 0 or col + j >= self.board.grid_num:
+                    if row + i < 0 or row + i >= Board.grid_num or \
+                            col + j < 0 or col + j >= Board.grid_num:
                         continue
-                    if not self.board.disks[row + i][col + j]:
+                    if not disks[row + i][col + j]:
                         continue
-                    if self.board.disks[row + i][col + j].color == self.color:
+                    if disks[row + i][col + j].color == color:
                         continue
-                    if self.reverse_check(row + i, col + j, i, j, 0):
+                    if self.reverse_check(disks, color, row + i, col + j, i, j, 0):
                         return True
         return False
 
-    def reverse_check(self, row, col, r, c, cnt=0):
-        if 0 <= row < self.board.grid_num and 0 <= col < self.board.grid_num:
-            if disk := self.board.disks[row][col]:
-                if disk.color != self.color:
+    def reverse_check(self, disks, color, row, col, r, c, cnt=0):
+        if 0 <= row < Board.grid_num and 0 <= col < Board.grid_num:
+            if disk := disks[row][col]:
+                if disk.color != color:
                     cnt += 1
-                    return self.reverse_check(row + r, col + c, r, c, cnt)
+                    return self.reverse_check(disks, color, row + r, col + c, r, c, cnt)
                 else:
                     return cnt
 
@@ -247,36 +254,37 @@ class GameLogic:
 
             yield (target_row, target_col)
 
-    def find_reversibles(self, row, col):
+    def find_reversibles(self, row, col, disks, color):
         for r in range(-1, 2):
             for c in range(-1, 2):
                 if r == 0 and c == 0:
                     continue
-                if row + r < 0 or row + r >= self.board.grid_num or \
-                        col + c < 0 or col + c >= self.board.grid_num:
+                if row + r < 0 or row + r >= Board.grid_num or \
+                        col + c < 0 or col + c >= Board.grid_num:
                     continue
-                if not self.board.disks[row + r][col + c]:
+                if not disks[row + r][col + c]:
                     continue
-                if self.board.disks[row + r][col + c] == self.color:
+                if disks[row + r][col + c].color == color:
                     continue
-                if cnt := self.reverse_check(row + r, col + c, r, c):
+                if cnt := self.reverse_check(disks, color, row + r, col + c, r, c):
                     yield from self.get_reversibles(row + r, col + c, r, c, cnt)
 
-    def reverse(self):
-        for row, col in self.find_reversibles(*self.board.clicked):
-            self.board.reverse(row, col, self.color)
+    def reverse(self, disks, color, pos):
+        for row, col in self.find_reversibles(*pos, disks, color):
+            self.board.reverse(row, col, color)
 
 
 class Player(GameLogic):
 
     def __init__(self, board):
-        super().__init__(board, Piece.BLACK)
+        self.board = board
+        self.color = Piece.BLACK
         self.turn = True
         self.display_disk = Images.BLACK_DISPLAY
 
     def place(self, pos):
         row, col = self.board.find_position(*pos)
-        if self.is_placeable(row, col):
+        if self.is_placeable(row, col, self.board.disks, self.color):
             self.board.place(row, col, self.color)
             return True
 
@@ -284,7 +292,8 @@ class Player(GameLogic):
 class OtherPlayer(GameLogic):
 
     def __init__(self, board):
-        super().__init__(board, Piece.WHITE)
+        self.board = board
+        self.color = Piece.WHITE
         self.turn = False
         self.display_disk = Images.WHITE_DISPLAY
         self.weights = [
@@ -305,11 +314,11 @@ class OtherPlayer(GameLogic):
         ]
         self.corners = [(0, 0), (0, 7), (7, 0), (7, 7)]
 
-    def get_placeables(self):
+    def get_placeables(self, disks, color):
         for r in range(self.board.grid_num):
             for c in range(self.board.grid_num):
-                if not self.board.disks[r][c]:
-                    if self.is_placeable(r, c):
+                if not disks[r][c]:
+                    if self.is_placeable(r, c, disks, color.value):
                         yield r, c
 
     def find_corners(self, grids):
@@ -329,31 +338,16 @@ class OtherPlayer(GameLogic):
                     white += self.weights[r][c]
         return black, white
 
-    def find_candidates_with_weight(self, grids, disks):
+    def find_candidates_with_weight(self, grids, disks, color):
         for r, c in grids:
             temp = copy.deepcopy(disks)
             temp[r][c] = Piece.WHITE
-            for row, col in self.find_reversibles(r, c):
-                temp[row][col] = Piece.WHITE
+            for row, col in self.find_reversibles(r, c, disks, color.value):
+                temp[row][col] = color
             black, white = self.calc_weights(temp)
             yield Candidate(white - black, r, c)
 
-
-
-
-
-        # b, w = self.calc_weights()
-
-        # for r, c in grids:
-        #     black = b
-        #     white = w + self.weights[r][c]
-        #     for row, col in self.find_reversibles(r, c):
-        #         weight = self.weights[row][col]
-        #         black -= weight
-        #         white += weight
-        #     yield Candidate(white - black, r, c)
-
-    def measure_openness(self, row, col, *pos):
+    def measure_openness(self, row, col, disks, *pos):
         total = 0
         for i in range(-1, 2):
             for j in range(-1, 2):
@@ -364,17 +358,17 @@ class OtherPlayer(GameLogic):
                     continue
                 if (row + i, col + j) == pos:
                     continue
-                if not self.board.disks[row + i][col + j]:
+                if not disks[row + i][col + j]:
                     total += 1
         return total
 
-    def find_candidates_with_openness(self, grids):
+    def find_candidates_with_openness(self, grids, disks):
         grids = [pos for pos in grids if pos not in self.corner_grids]
 
         for r, c in grids:
             total = 0
             for row, col in self.find_reversibles(r, c):
-                total += self.measure_openness(row, col, r, c)
+                total += self.measure_openness(row, col, disks, r, c)
             if total == 0:
                 yield Candidate(total, r, c)
 
@@ -422,7 +416,7 @@ class OtherPlayer(GameLogic):
         return around_black, around_white
 
     def copy_current_board(self):
-        disks = [[None for _ in range(Board.grid_num)] for _ in range(Board.grid_num)]
+        disks = [[None for _ in range(self.board.grid_num)] for _ in range(self.board.grid_num)]
 
         for r in range(self.board.grid_num):
             for c in range(self.board.grid_num):
@@ -430,33 +424,47 @@ class OtherPlayer(GameLogic):
                     disks[r][c] = disk.color
         return disks
 
-    def evaluate(self, grids, disks):
-        for r, c in grids:
-            temp = copy.deepcopy(disks)
-            temp[r][c] = Piece.WHITE
-            # print(temp)
-            for row, col in self.find_reversibles(r, c):
-                temp[row][col] = Piece.WHITE
-            corner_black, corner_white = self._corners(temp)
-            not_corner_black, not_corner_white = self._non_corners(temp)
-            around_black, around_white = self._around_corners(temp)
+    def simulate(self, disks):
+        pass
+        # grids = tuple(pos for pos in self.get_placeables(disks, Piece.BLACK))
+
+    def evaluate(self, r, c, disks, color):
+        for row, col in self.find_reversibles(r, c, disks, color.value):
+            disks[row][col] = color
+            corner_black, corner_white = self._corners(disks)
+            not_corner_black, not_corner_white = self._non_corners(disks)
+            around_black, around_white = self._around_corners(disks)
             evaluation = (corner_white - corner_black) - (not_corner_white - not_corner_black) \
                 + 21 * (corner_white - corner_black) - 10 * (corner_white - around_black)
+        return evaluation
+
+    def find_best_move(self, grids, disks, color):
+        for r, c in grids:
+            temp = copy.deepcopy(disks)
+            temp[r][c] = color
+            evaluation = self.evaluate(r, c, temp, color)
             yield Candidate(evaluation, r, c)
 
+    def count_disks(self):
+        return sum(1 for grids in self.board.disks for grid in grids if not grid)
+
     def place(self):
-        grids = tuple(pos for pos in self.get_placeables())
         disks = self.copy_current_board()
+        grids = tuple(pos for pos in self.get_placeables(disks, self.color))
 
         if pos := self.find_corners(grids):
             self.board.place(*pos, self.color)
         else:
-            cands = [cand for cand in self.find_candidates_with_weight(grids, disks)]
-            print(cands)
-
-            candidates = [cand for cand in self.evaluate(grids, disks)]
+            # if self.count_disks() <= 10:
+            #     candidates = [cand for cand in self.find_candidates_with_weight(grids, disks, self.color)]
+            # else:
+            candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
             print(candidates)
-            pos = max(candidates, key=lambda x: x.value)
+
+            if filtered := [cand for cand in candidates if (cand.row, cand.col) not in self.around_corners]:
+                pos = max(filtered, key=lambda x: x.value)
+            else:
+                pos = max(candidates, key=lambda x: x.value)
             self.board.place(pos.row, pos.col, self.color)
 
         # elif candidates := [cand for cand in self.find_candidates_with_openness(grids)]:
@@ -468,7 +476,7 @@ class OtherPlayer(GameLogic):
         #         pos = max(filtered, key=lambda x: x.value)
         #     else:
         #         pos = max(candidates, key=lambda x: x.value)
-        #     self.board.place(pos.row, pos.col, self.color)
+        #     self.board.place(pos.row, pos.col, self.c olor)
 
 
 class Othello:
@@ -550,7 +558,7 @@ class Othello:
             self.restart_game()
         else:
             if self.player.turn and self.cursor.visible:
-                if self.player.has_placeables():
+                if self.player.has_placeables(self.disks, self.player.color):
                     if self.player.place(Point(*click_pos)):
                         self.set_timer(self._reverse)
 
@@ -560,7 +568,7 @@ class Othello:
 
     def reverse_disks(self):
         current_player = self.player if self.player.turn else self.other
-        current_player.reverse()
+        current_player.reverse(self.disks, current_player.color, self.board.clicked)
         if self.calc_score():
             self.set_timer(self._change)
         else:
@@ -580,7 +588,7 @@ class Othello:
 
     def guess_placeable(self):
         current_player = self.player if self.player.turn else self.other
-        if not current_player.has_placeables():
+        if not current_player.has_placeables(self.disks, current_player.color):
             self.board.show_pass = True
             self.set_timer(self._pass)
         else:
