@@ -12,6 +12,8 @@ SCREEN = Rect(0, 0, 840, 700)
 
 Point = namedtuple('Point', 'x y')
 Candidate = namedtuple('Candidate', 'value row col')
+Simulate = namedtuple('Simulate', 'corners arounds sides')
+# Candidate = namedtuple('Candidate', 'evaluation row col corners arounds sides')
 
 DARK_GREEN = (0, 70, 0)
 GREEN = (0, 100, 0)
@@ -314,6 +316,13 @@ class OtherPlayer(GameLogic):
         ]
         self.corners = [(0, 0), (0, 7), (7, 0), (7, 7)]
 
+        self.around_corners2 = [
+            (0, 1), (1, 0), (1, 1),
+            (0, 6), (1, 6), (1, 7),
+            (6, 0), (6, 1), (7, 1),
+            (6, 6), (6, 7), (7, 6)
+        ]
+
     def get_placeables(self, disks, color):
         for r in range(self.board.grid_num):
             for c in range(self.board.grid_num):
@@ -424,48 +433,95 @@ class OtherPlayer(GameLogic):
                     disks[r][c] = disk.color
         return disks
 
-    def simulate(self, disks):
-        pass
-        # grids = tuple(pos for pos in self.get_placeables(disks, Piece.BLACK))
+    def simulate(self, disks, color):
+        """四隅：空だったところに白がおかれないようにする。
+           四隅の回り：白がおかれるようにする。
+           周囲: 白がおかれないようにする。
+        """
+        # print(disks)
+        empty_corners = [(r, c) for r, c in self.corners if not disks[r][c]]
+        empty_around = [(r, c) for r, c in self.around_corners2 if not disks[r][c]]
+        empty_sides = [(r, c) for r in range(self.board.grid_num) for c in range(self.board.grid_num) \
+                       if (r in (0, 7) or c in (0, 7)) and not disks[r][c]]
+        corners = arounds = sides = 0
 
-    def evaluate(self, r, c, disks, color):
-        for row, col in self.find_reversibles(r, c, disks, color.value):
-            disks[row][col] = color
-            corner_black, corner_white = self._corners(disks)
-            not_corner_black, not_corner_white = self._non_corners(disks)
-            around_black, around_white = self._around_corners(disks)
-            evaluation = (corner_white - corner_black) - (not_corner_white - not_corner_black) \
-                + 21 * (corner_white - corner_black) - 10 * (corner_white - around_black)
+        grids = tuple(pos for pos in self.get_placeables(disks, color))
+        for r, c in grids:
+
+            temp = copy.deepcopy(disks)
+            temp[r][c] = color
+            for row, col in self.find_reversibles(r, c, temp, color.value):
+                temp[row][col] = color
+
+            corners += sum(1 for r, c in empty_corners if temp[r][c] == color)
+            arounds += sum(1 for r, c in empty_around if temp[r][c] == color)
+            sides += sum(1 for r, c in empty_sides if temp[r][c] == color)
+        return Simulate(corners, arounds, sides)
+
+    def evaluate(self, disks):
+        corner_black, corner_white = self._corners(disks)
+        not_corner_black, not_corner_white = self._non_corners(disks)
+        around_black, around_white = self._around_corners(disks)
+        evaluation = (corner_white - corner_black) - (not_corner_white - not_corner_black) \
+            + 21 * (corner_white - corner_black) - 10 * (corner_white - around_black)
+
         return evaluation
 
     def find_best_move(self, grids, disks, color):
         for r, c in grids:
             temp = copy.deepcopy(disks)
             temp[r][c] = color
-            evaluation = self.evaluate(r, c, temp, color)
-            yield Candidate(evaluation, r, c)
+            for row, col in self.find_reversibles(r, c, temp, color.value):
+                temp[row][col] = color
+            evaluation = self.evaluate(temp)
+            simulation = self.simulate(temp, Piece.BLACK)
+            # print(simulation)
+            yield (Candidate(evaluation, r, c), simulation)
 
     def count_disks(self):
         return sum(1 for grids in self.board.disks for grid in grids if not grid)
 
+    def guess(self, grids, disks):
+        candidates = [candidate for candidate in self.find_best_move(grids, disks, self.color)]
+
+        if filtered := [cand for cand, simu in candidates if simu.corners == 0 and simu.arounds > 0 and simu.sides == 0]:
+            return max(filtered, key=lambda x: x.value)
+        if filtered := [cand for cand, simu in candidates if simu.corners == 0 and simu.sides == 0]:
+            return max(filtered, key=lambda x: x.value)
+        if filtered := [cand for cand, simu in candidates if simu.corners == 0]:
+            return max(filtered, key=lambda x: x.value)
+        if filtered := [cand for cand, simu in candidates if simu.sides == 0]:
+            return max(filtered, key=lambda x: x.value)
+        if filtered := [cand for cand, simu in candidates if simu.arounds > 0]:
+            return max(filtered, key=lambda x: x.value)
+        
+        candidates = [cand for cand, _ in candidates]
+        return max(candidates, key=lambda x: x.value)
+
     def place(self):
         disks = self.copy_current_board()
-        grids = tuple(pos for pos in self.get_placeables(disks, self.color))
+        placeable_grids = tuple(pos for pos in self.get_placeables(disks, self.color))
+        print(placeable_grids)
 
-        if pos := self.find_corners(grids):
+        if pos := self.find_corners(placeable_grids):
             self.board.place(*pos, self.color)
         else:
-            # if self.count_disks() <= 10:
-            #     candidates = [cand for cand in self.find_candidates_with_weight(grids, disks, self.color)]
-            # else:
-            candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
-            print(candidates)
-
-            if filtered := [cand for cand in candidates if (cand.row, cand.col) not in self.around_corners]:
-                pos = max(filtered, key=lambda x: x.value)
+            if filtered := [pos for pos in placeable_grids if pos not in self.around_corners]:
+                pos = self.guess(filtered, disks)
             else:
-                pos = max(candidates, key=lambda x: x.value)
+                pos = self.guess(placeable_grids, disks)
+            
             self.board.place(pos.row, pos.col, self.color)
+
+
+            # candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
+            # print(candidates)
+
+            # if filtered := [cand for cand in candidates if (cand.row, cand.col) not in self.around_corners]:
+            #     pos = max(filtered, key=lambda x: x.value)
+            # else:
+            #     pos = max(candidates, key=lambda x: x.value)
+            # self.board.place(pos.row, pos.col, self.color)
 
         # elif candidates := [cand for cand in self.find_candidates_with_openness(grids)]:
         #     pos = min(candidates, key=lambda x: x.value)
@@ -554,7 +610,6 @@ class Othello:
 
     def click(self, click_pos):
         if self.board.button.rect.collidepoint(*click_pos):
-            # print('New Game')
             self.restart_game()
         else:
             if self.player.turn and self.cursor.visible:
