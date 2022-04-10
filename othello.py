@@ -1,11 +1,11 @@
 import copy
 import pygame
+import random
 from collections import namedtuple
 from enum import Enum, auto
 from pathlib import Path
 from pygame.locals import *
 
-import random
 
 SCREEN = Rect(0, 0, 840, 700)
 
@@ -93,6 +93,7 @@ class Board:
         self.right = self.left + self.side
         self.bottom = self.top + self.side
         self.show_pass = False
+        self.show_winner = False
         self.disks = disks
         self.display_group = display_group
         self.set_displays()
@@ -107,6 +108,7 @@ class Board:
         self.text_score = title_font.render('SCORE', True, BLACK)
         text_font = pygame.font.SysFont(None, 30)
         self.text_pass = text_font.render('PASS', True, RED)
+        self.text_win = text_font.render('WIN', True, RED)
         self.score_font = pygame.font.SysFont(None, 40)
 
     def draw_background(self, screen):
@@ -127,10 +129,16 @@ class Board:
         screen.blit(self.text_turn, (35, self.top + 10))
         if self.show_pass:
             screen.blit(self.text_pass, (130, 180))
+        if self.show_winner:
+            screen.blit(self.text_win, (130, 180))
 
     def set_turn(self, disk):
         disk = DisplayDisk(disk.filepath)
         self.display_group.add(disk)
+
+    def set_score(self, black, white):
+        self.black_score = str(black)
+        self.white_score = str(white)
 
     def draw_score_display(self, screen):
         pygame.draw.rect(screen, GREEN, (40, self.top + 280, 80, 150))
@@ -384,7 +392,6 @@ class OtherPlayer(GameLogic):
            四隅の回り：黒がおかれるようにする。
            周囲: 黒が増えないようにする。
         """
-        # print(disks)
         empty_corners = [(r, c) for r, c in self.corners if not disks[r][c]]
         empty_around = [(r, c) for r, c in self.around_corners if not disks[r][c]]
         empty_sides = [(r, c) for r in range(self.board.grid_num) for c in range(self.board.grid_num) \
@@ -433,59 +440,33 @@ class OtherPlayer(GameLogic):
     def guess(self, grids, disks):
         candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
 
-        if filtered := [cand for cand in candidates if cand.corners == 0 and cand.arounds > 0 and cand.sides == 0]:
-            print('1')
-            cands = self.find_high_evaluation(filtered)
-            return max(cands, key=lambda x: x.arounds)
-        if filtered := [cand for cand in candidates if cand.corners == 0 and cand.arounds > 0]:
-            print('2')
-            cands = self.find_high_evaluation(filtered)
-            cands.sort(key=lambda x: (-x.arounds, x.sides))
-            return cands[0]
-        if filtered := [cand for cand in candidates if cand.corners == 0 and cand.sides == 0]:
-            print('3')
+        if all(c.evaluation == c.corners == c.arounds == c.sides == 0 for c in candidates):
+            return random.choice(candidates)
+        if filtered := [c for c in candidates if c.corners == 0 and c.arounds > 0 and c.sides == 0]:
+            filtered.sort(key=lambda x: (-x.evaluation, -x.arounds))
+            return filtered[0]
+        if filtered := [c for c in candidates if c.corners == 0 and c.arounds > 0]:
+            filtered.sort(key=lambda x: (-x.evaluation, x.sides, -x.arounds))
+            return filtered[0]
+        if filtered := [c for c in candidates if c.corners == 0 and c.sides == 0]:
             return max(filtered, key=lambda x: x.evaluation)
         if filtered := [cand for cand in candidates if cand.corners == 0]:
-            print('4')
-            cands = self.find_high_evaluation(filtered)
-            return min(cands, key=lambda x: x.sides)
-        if filtered := [cand for cand in candidates if cand.arounds > 0 and cand.sides == 0]:
-            print('5')
-            cands = self.find_high_evaluation(filtered)
-            cands.sort(key=lambda x: (x.corners, -x.arounds))
-            return cands[0]
-        if filtered := [cand for cand in candidates if cand.arounds > 0]:
-            print('6')
-            cands = self.find_high_evaluation(filtered)
-            cands.sort(key=lambda x: (x.corners, -x.arounds, x.sides))
-            return cands[0]
-        if filtered := [cand for cand in candidates if cand.sides == 0]:
-            print('7')
-            cands = self.find_high_evaluation(filtered)
-            cands.sort(key=lambda x: (x.corners, -x.arounds))
-            return cands[0]
-        print('8')
+            filtered.sort(key=lambda x: (-x.evaluation, x.sides))
+            return filtered[0]
+        if filtered := [c for c in candidates if c.arounds > 0 and c.sides == 0]:
+            filtered.sort(key=lambda x: (-x.evaluation, x.corners, -x.arounds))
+            return filtered[0]
+        if filtered := [c for c in candidates if c.arounds > 0]:
+            filtered.sort(key=lambda x: (-x.evaluation, x.corners, x.sides, -x.arounds))
+            return filtered[0]
+        if filtered := [c for c in candidates if c.sides == 0]:
+            filtered.sort(key=lambda x: (-x.evaluation, x.corners))
+            return filtered[0]
+        if filtered := [c for c in candidates if c.sides > 0]:
+            filtered.sort(key=lambda x: (-x.evaluation, x.corners, x.sides))
+            return filtered[0]
+
         return max(candidates, key=lambda x: x.evaluation)
-
-        # candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
-
-        # if filtered := [cand for cand in candidates if cand.corners == 0 and cand.arounds > 0 and cand.sides == 0]:
-        #     return max(filtered, key=lambda x: x.evaluation)
-        # if filtered := [cand for cand in candidates if cand.corners == 0 and cand.arounds > 0]:
-        #     return max(filtered, key=lambda x: x.evaluation)
-        # if filtered := [cand for cand in candidates if cand.corners == 0 and cand.sides == 0]:
-        #     return max(filtered, key=lambda x: x.evaluation)
-        # if filtered := [cand for cand in candidates if cand.corners == 0]:
-        #     # return max(filtered, key=lambda x: x.evaluation)
-        #     return min(filtered, key=lambda x: x.sides)
-        # if filtered := [cand for cand in candidates if cand.arounds > 0 and cand.sides == 0]:
-        #     return max(filtered, key=lambda x: x.evaluation)
-        # if filtered := [cand for cand in candidates if cand.arounds > 0]:
-        #     return max(filtered, key=lambda x: x.evaluation)
-        # if filtered := [cand for cand in candidates if cand.sides == 0]:
-        #     return max(filtered, key=lambda x: x.evaluation)
-
-        # return max(candidates, key=lambda x: x.evaluation)
 
     def place(self):
         disks = self.copy_current_board()
@@ -529,6 +510,7 @@ class Othello:
         self._change = pygame.USEREVENT + 2
         self._guess = pygame.USEREVENT + 3
         self._pass = pygame.USEREVENT + 4
+        self._gameover = pygame.USEREVENT + 5
 
     def setup(self):
         for r in range(3, 5):
@@ -540,13 +522,12 @@ class Othello:
                 self.board.place(r, c, color)
 
     def calc_score(self):
-        black_score = sum(sum(
+        black = sum(sum(
             disk.color == Piece.BLACK for disk in row if disk) for row in self.disks)
-        white_score = sum(sum(
+        white = sum(sum(
             disk.color == Piece.WHITE for disk in row if disk) for row in self.disks)
-        self.board.white_score = str(white_score)
-        self.board.black_score = str(black_score)
-        if black_score + white_score == 64:
+        self.board.set_score(black, white)
+        if black + white == 64:
             return False
         return True
 
@@ -561,8 +542,11 @@ class Othello:
         self.event = None
         self.delete_disks()
         self.setup()
+        self.board.show_winner = False
+        self.board.show_pass = False
         self.board.black_score = self.board.white_score = ''
         self.board.set_turn(self.player.display_disk)
+        self.status = Status.PLAY
 
     def set_timer(self, event_type, t=40):
         """Using pygame.set_timer resulted in program crash, but no errors
@@ -591,7 +575,7 @@ class Othello:
         if self.calc_score():
             self.set_timer(self._change)
         else:
-            self.satus = Status.GAMEOVER
+            self.set_timer(self._gameover)
 
     def pass_turn(self):
         self.board.show_pass = False
@@ -614,6 +598,13 @@ class Othello:
             if self.other.turn:
                 self.set_timer(self._place)
 
+    def game_over(self):
+        disk = self.player.display_disk \
+            if self.board.black_score > self.board.white_score else self.other.display_disk
+        self.board.set_turn(disk)
+        self.board.show_winner = True
+        self.satus = Status.GAMEOVER
+
     def run(self):
         clock = pygame.time.Clock()
         self.board.set_turn(self.player.display_disk)
@@ -627,7 +618,7 @@ class Othello:
                     pygame.event.post(self.event)
 
             clock.tick(60)
-            self.screen.fill((221, 221, 221))   #(0,70, 0))
+            self.screen.fill((221, 221, 221))
             self.board.draw(self.screen)
             self.disk_group.update()
             self.disk_group.draw(self.screen)
@@ -655,6 +646,8 @@ class Othello:
                         self.guess_placeable()
                     if event.type == self._pass:
                         self.pass_turn()
+                    if event.type == self._gameover:
+                        self.game_over()
                     # if event.type == MOUSEBUTTONDOWN and event.button == 1:
                     if event.type == MOUSEBUTTONUP and event.button == 1:
                         self.click(event.pos)
