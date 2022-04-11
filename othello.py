@@ -270,33 +270,45 @@ class GameLogic:
                 if cnt := self.reverse_check(disks, color, row + r, col + c, r, c):
                     yield from self.get_reversibles(row + r, col + c, r, c, cnt)
 
-    def reverse(self, disks, color, pos):
-        for row, col in self.find_reversibles(*pos, disks, color):
-            self.board.reverse(row, col, color)
+
+class Players(GameLogic):
+
+    def __init__(self, board, color, display_disk, turn):
+        self.board = board
+        self.color = color
+        self.display_disk = display_disk
+        self.turn = turn
+        self.create_sounds()
+
+    def create_sounds(self):
+        self.sound = pygame.mixer.Sound('sounds/disk.wav')
+
+    def reverse(self):
+        self.sound.play()
+        for row, col in self.find_reversibles(*self.board.clicked, self.board.disks, self.color):
+            self.board.reverse(row, col, self.color)
+
+    def place(self):
+        raise NotImplementedError()
 
 
-class Player(GameLogic):
+class Player(Players):
 
     def __init__(self, board):
-        self.board = board
-        self.color = Piece.BLACK
-        self.turn = True
-        self.display_disk = Images.BLACK_DISPLAY
+        super().__init__(board, Piece.BLACK, Images.BLACK_DISPLAY, True)
 
     def place(self, pos):
         row, col = self.board.find_position(*pos)
         if self.is_placeable(row, col, self.board.disks, self.color):
+            self.sound.play()
             self.board.place(row, col, self.color)
             return True
 
 
-class OtherPlayer(GameLogic):
+class Opponent(Players):
 
     def __init__(self, board):
-        self.board = board
-        self.color = Piece.WHITE
-        self.turn = False
-        self.display_disk = Images.WHITE_DISPLAY
+        super().__init__(board, Piece.WHITE, Images.WHITE_DISPLAY, False)
 
         self.around_corners = [
             (0, 1), (1, 0), (1, 1),
@@ -441,43 +453,46 @@ class OtherPlayer(GameLogic):
         candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
 
         if all(c.evaluation == c.corners == c.arounds == c.sides == 0 for c in candidates):
-            return random.choice(candidates)
-        if filtered := [c for c in candidates if c.corners == 0 and c.arounds > 0 and c.sides == 0]:
+            cand = random.choice(candidates)
+        elif filtered := [c for c in candidates if c.corners == 0 and c.arounds > 0 and c.sides == 0]:
             filtered.sort(key=lambda x: (-x.evaluation, -x.arounds))
-            return filtered[0]
-        if filtered := [c for c in candidates if c.corners == 0 and c.arounds > 0]:
+            cand = filtered[0]
+        elif filtered := [c for c in candidates if c.corners == 0 and c.arounds > 0]:
             filtered.sort(key=lambda x: (-x.evaluation, x.sides, -x.arounds))
-            return filtered[0]
-        if filtered := [c for c in candidates if c.corners == 0 and c.sides == 0]:
-            return max(filtered, key=lambda x: x.evaluation)
-        if filtered := [cand for cand in candidates if cand.corners == 0]:
+            cand = filtered[0]
+        elif filtered := [c for c in candidates if c.corners == 0 and c.sides == 0]:
+            cand = max(filtered, key=lambda x: x.evaluation)
+        elif filtered := [cand for cand in candidates if cand.corners == 0]:
             filtered.sort(key=lambda x: (-x.evaluation, x.sides))
-            return filtered[0]
-        if filtered := [c for c in candidates if c.arounds > 0 and c.sides == 0]:
+            cand = filtered[0]
+        elif filtered := [c for c in candidates if c.arounds > 0 and c.sides == 0]:
             filtered.sort(key=lambda x: (-x.evaluation, x.corners, -x.arounds))
-            return filtered[0]
-        if filtered := [c for c in candidates if c.arounds > 0]:
+            cand = filtered[0]
+        elif filtered := [c for c in candidates if c.arounds > 0]:
             filtered.sort(key=lambda x: (-x.evaluation, x.corners, x.sides, -x.arounds))
-            return filtered[0]
-        if filtered := [c for c in candidates if c.sides == 0]:
+            cand = filtered[0]
+        elif filtered := [c for c in candidates if c.sides == 0]:
             filtered.sort(key=lambda x: (-x.evaluation, x.corners))
-            return filtered[0]
-        if filtered := [c for c in candidates if c.sides > 0]:
+            cand = filtered[0]
+        elif filtered := [c for c in candidates if c.sides > 0]:
             filtered.sort(key=lambda x: (-x.evaluation, x.corners, x.sides))
-            return filtered[0]
+            cand = filtered[0]
+        else:
+            cand = max(candidates, key=lambda x: x.evaluation)
 
-        return max(candidates, key=lambda x: x.evaluation)
+        return cand.row, cand.col
 
     def place(self):
         disks = self.copy_current_board()
         placeable_grids = tuple(pos for pos in self.get_placeables(disks, self.color))
-        if pos := self.find_corners(placeable_grids):
-            self.board.place(*pos, self.color)
-        else:
+
+        if not (pos := self.find_corners(placeable_grids)):
             if filtered := [pos for pos in placeable_grids if pos not in self.around_corners]:
                 placeable_grids = filtered
             pos = self.guess(placeable_grids, disks)
-            self.board.place(pos.row, pos.col, self.color)
+
+        self.sound.play()
+        self.board.place(*pos, self.color)
 
 
 class Othello:
@@ -500,7 +515,7 @@ class Othello:
         self.board = Board(self.disks, self.display_group)
         self.cursor = Cursor(self.board)
         self.player = Player(self.board)
-        self.other = OtherPlayer(self.board)
+        self.other = Opponent(self.board)
         self.create_events()
         self.setup()
 
@@ -571,7 +586,7 @@ class Othello:
 
     def reverse_disks(self):
         current_player = self.player if self.player.turn else self.other
-        current_player.reverse(self.disks, current_player.color, self.board.clicked)
+        current_player.reverse()
         if self.calc_score():
             self.set_timer(self._change)
         else:
