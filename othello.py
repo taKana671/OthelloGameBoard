@@ -49,6 +49,16 @@ class Images(Files):
     BLACK_DISPLAY = auto()
     WHITE_DISPLAY = auto()
     CURSOR = auto()
+    BUTTON = auto()
+
+
+class Sounds(Files):
+
+    DISK = auto()
+
+    @property
+    def filepath(self):
+        return Path('sounds', f'{self.name.lower()}.wav')
 
 
 class Disk(pygame.sprite.Sprite):
@@ -102,7 +112,7 @@ class Board:
     def set_displays(self):
         _ = Disk(Piece.BLACK, Point(80, 390))
         _ = Disk(Piece.WHITE, Point(80, 455))
-        self.button = Button('images/button.png', Point(102, self.top + 510))
+        self.button = Button(Images.BUTTON.filepath, Point(102, self.top + 510))
         title_font = pygame.font.SysFont(None, 50)
         self.text_turn = title_font.render('TURN', True, BLACK)
         self.text_score = title_font.render('SCORE', True, BLACK)
@@ -176,7 +186,6 @@ class Board:
         return Point(center_x, center_y)
 
     def place(self, row, col, color):
-        self.clicked = (row, col)
         self.disks[row][col] = Disk(color, self.grid_center(row, col))
 
     def reverse(self, row, col, color):
@@ -189,7 +198,7 @@ class Cursor(pygame.sprite.Sprite):
 
     def __init__(self, board):
         super().__init__(self.containers)
-        self.image = pygame.image.load('images/cursor.png').convert_alpha()
+        self.image = pygame.image.load(Images.CURSOR.filepath).convert_alpha()
         self.image = pygame.transform.scale(self.image, (50, 50))
         self.rect = self.image.get_rect()
         self.visible = False
@@ -278,6 +287,7 @@ class Players(GameLogic):
         self.color = color
         self.display_disk = display_disk
         self.turn = turn
+        self.clicked = None
         self.create_sounds()
 
     def create_sounds(self):
@@ -285,8 +295,13 @@ class Players(GameLogic):
 
     def reverse(self):
         self.sound.play()
-        for row, col in self.find_reversibles(*self.board.clicked, self.board.disks, self.color):
+        for row, col in self.find_reversibles(*self.clicked, self.board.disks, self.color):
             self.board.reverse(row, col, self.color)
+
+    def click(self, *pos):
+        self.clicked = pos
+        self.sound.play()
+        self.board.place(*self.clicked, self.color)
 
     def place(self):
         raise NotImplementedError()
@@ -300,8 +315,7 @@ class Player(Players):
     def place(self, pos):
         row, col = self.board.find_position(*pos)
         if self.is_placeable(row, col, self.board.disks, self.color):
-            self.sound.play()
-            self.board.place(row, col, self.color)
+            self.click(row, col)
             return True
 
 
@@ -400,10 +414,6 @@ class Opponent(Players):
         return disks
 
     def simulate(self, disks, color):
-        """四隅：空だったところに黒がおかれないようにする。
-           四隅の回り：黒がおかれるようにする。
-           周囲: 黒が増えないようにする。
-        """
         empty_corners = [(r, c) for r, c in self.corners if not disks[r][c]]
         empty_around = [(r, c) for r, c in self.around_corners if not disks[r][c]]
         empty_sides = [(r, c) for r in range(self.board.grid_num) for c in range(self.board.grid_num) \
@@ -427,8 +437,11 @@ class Opponent(Players):
         not_corner_black, not_corner_white = self._non_corners(disks)
         around_black, around_white = self._around_corners(disks)
         side_black, side_white = self._sides(disks)
-        evaluation = (corner_white - corner_black) - (not_corner_white - not_corner_black) \
-            + 21 * (corner_white - corner_black) + 8 * (side_white - side_black) - 10 * (corner_white - around_black)
+        evaluation = (corner_white - corner_black) \
+            - (not_corner_white - not_corner_black) \
+            + 21 * (corner_white - corner_black) \
+            + 8 * (side_white - side_black) \
+            - 10 * (corner_white - around_black)
 
         return evaluation
 
@@ -487,12 +500,11 @@ class Opponent(Players):
         placeable_grids = tuple(pos for pos in self.get_placeables(disks, self.color))
 
         if not (pos := self.find_corners(placeable_grids)):
-            if filtered := [pos for pos in placeable_grids if pos not in self.around_corners]:
+            if filtered := [grid for grid in placeable_grids if grid not in self.around_corners]:
                 placeable_grids = filtered
             pos = self.guess(placeable_grids, disks)
 
-        self.sound.play()
-        self.board.place(*pos, self.color)
+        self.click(*pos)
 
 
 class Othello:
