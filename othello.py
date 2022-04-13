@@ -6,6 +6,8 @@ from enum import Enum, auto
 from pathlib import Path
 from pygame.locals import *
 
+import time
+
 
 SCREEN = Rect(0, 0, 840, 700)
 
@@ -344,63 +346,43 @@ class Opponent(Players):
             if pos in self.corners:
                 return pos
 
-    def _corners(self, disks):
+    def _corners(self):
+        for r, c in self.corners:
+            yield (r, c)
+
+    def _non_corners(self):
+        for r in range(self.board.grid_num):
+            for c in range(self.board.grid_num):
+                if (r, c) in self.corners:
+                    continue
+                yield (r, c)
+
+    def _around_corners(self, corners):
+        start = 0
+
+        for corner in corners:
+            around_corner = self.around_corners[start: start + 3]
+            start += 3
+            if not corner:
+                for r, c in around_corner:
+                    yield (r, c)
+
+    def _sides(self):
+        for r in range(self.board.grid_num):
+            for c in range(self.board.grid_num):
+                if r in (0, 7) or c in (0, 7):
+                    yield (r, c)
+
+    def counter(self, disks, grids):
         black = white = 0
 
-        for r, c in self.corners:
+        for r, c in grids():
             if not disks[r][c]:
                 continue
             if disks[r][c] == self.color:
                 white += 1
             else:
                 black += 1
-
-        return black, white
-
-    def _non_corners(self, disks):
-        black = white = 0
-
-        for r in range(self.board.grid_num):
-            for c in range(self.board.grid_num):
-                if (r, c) in self.corners:
-                    continue
-                if not disks[r][c]:
-                    continue
-                if disks[r][c] == self.color:
-                    white += 1
-                else:
-                    black += 1
-        return black, white
-
-    def _around_corners(self, disks):
-        start = black = white = 0
-
-        for row, col in self.corners:
-            around_corner = self.around_corners[start: start + 3]
-            start += 3
-            if not disks[row][col]:
-                for r, c in around_corner:
-                    if not disks[r][c]:
-                        continue
-                    if disks[r][c] == self.color:
-                        white += 1
-                    else:
-                        black += 1
-
-        return black, white
-
-    def _sides(self, disks):
-        black = white = 0
-
-        for r in range(self.board.grid_num):
-            for c in range(self.board.grid_num):
-                if r in (0, 7) or c in (0, 7):
-                    if not disks[r][c]:
-                        continue
-                    if disks[r][c] == self.color:
-                        white += 1
-                    else:
-                        black += 1
 
         return black, white
 
@@ -433,10 +415,12 @@ class Opponent(Players):
         return corners, arounds, sides
 
     def evaluate(self, disks):
-        corner_black, corner_white = self._corners(disks)
-        not_corner_black, not_corner_white = self._non_corners(disks)
-        around_black, around_white = self._around_corners(disks)
-        side_black, side_white = self._sides(disks)
+        corner_black, corner_white = self.counter(disks, self._corners)
+        not_corner_black, not_corner_white = self.counter(disks, self._non_corners)
+        corners = (disks[r][c] for r, c in self.corners)
+        around_black, around_white = self.counter(disks, lambda: self._around_corners(corners))
+        side_black, side_white = self.counter(disks, self._sides)
+
         evaluation = (corner_white - corner_black) \
             - (not_corner_white - not_corner_black) \
             + 21 * (corner_white - corner_black) \
@@ -463,7 +447,9 @@ class Opponent(Players):
         return [cand for cand in candidates if cand.evaluation == max_cand.evaluation]
 
     def guess(self, grids, disks):
+        start = time.time()
         candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
+        print(time.time() - start)
 
         if all(c.evaluation == c.corners == c.arounds == c.sides == 0 for c in candidates):
             cand = random.choice(candidates)
