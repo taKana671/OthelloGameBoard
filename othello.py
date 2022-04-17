@@ -1,4 +1,3 @@
-import copy
 import pygame
 import random
 from collections import namedtuple
@@ -6,6 +5,7 @@ from enum import Enum, auto
 from pathlib import Path
 from pygame.locals import *
 
+# import time
 
 SCREEN = Rect(0, 0, 840, 700)
 
@@ -19,6 +19,7 @@ BROWN = (76, 38, 0)
 RED = (255, 0, 0)
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
+GRAY = (221, 221, 221)
 
 
 class Status(Enum):
@@ -401,7 +402,7 @@ class Opponent(Players):
         corners = arounds = sides = 0
 
         for r, c in self.get_placeables(disks, color):
-            temp = copy.deepcopy(disks)
+            temp = [line[:] for line in disks]
             temp[r][c] = color
             for row, col in self.find_reversibles(r, c, temp, color.value):
                 temp[row][col] = color
@@ -429,7 +430,7 @@ class Opponent(Players):
 
     def find_best_move(self, grids, disks, color):
         for r, c in grids:
-            temp = copy.deepcopy(disks)
+            temp = [line[:] for line in disks]
             temp[r][c] = color
             for row, col in self.find_reversibles(r, c, temp, color.value):
                 temp[row][col] = color
@@ -445,7 +446,9 @@ class Opponent(Players):
         return [cand for cand in candidates if cand.evaluation == max_cand.evaluation]
 
     def guess(self, grids, disks):
+        # start = time.time()
         candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
+        # print(time.time() - start)
 
         if all(c.evaluation == c.corners == c.arounds == c.sides == 0 for c in candidates):
             cand = random.choice(candidates)
@@ -627,7 +630,7 @@ class Othello:
                     pygame.event.post(self.event)
 
             clock.tick(60)
-            self.screen.fill((221, 221, 221))
+            self.screen.fill(GRAY)
             self.board.draw(self.screen)
             self.disk_group.update()
             self.disk_group.draw(self.screen)
