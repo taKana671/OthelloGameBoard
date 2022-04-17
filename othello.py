@@ -6,8 +6,6 @@ from enum import Enum, auto
 from pathlib import Path
 from pygame.locals import *
 
-import time
-
 
 SCREEN = Rect(0, 0, 840, 700)
 
@@ -81,7 +79,7 @@ class DisplayDisk(pygame.sprite.Sprite):
         self.image = pygame.image.load(file_path).convert_alpha()
         self.image = pygame.transform.scale(self.image, (150, 105))
         self.rect = self.image.get_rect()
-        self.rect.centerx, self.rect.centery = Point(80, 180)
+        self.rect.centerx, self.rect.centery = 80, 180
 
 
 class Button(pygame.sprite.Sprite):
@@ -112,9 +110,9 @@ class Board:
         self.black_score = self.white_score = ''
 
     def set_displays(self):
-        _ = Disk(Piece.BLACK, Point(80, 390))
-        _ = Disk(Piece.WHITE, Point(80, 455))
-        self.button = Button(Images.BUTTON.filepath, Point(102, self.top + 510))
+        _ = Disk(Piece.BLACK, (80, 390))
+        _ = Disk(Piece.WHITE, (80, 455))
+        self.button = Button(Images.BUTTON.filepath, (102, self.top + 510))
         title_font = pygame.font.SysFont(None, 50)
         self.text_turn = title_font.render('TURN', True, BLACK)
         self.text_score = title_font.render('SCORE', True, BLACK)
@@ -157,8 +155,8 @@ class Board:
         screen.blit(self.text_score, (25, self.top + 220))
         black_score = self.score_font.render(self.black_score, True, BLACK)
         white_score = self.score_font.render(self.white_score, True, BLACK)
-        screen.blit(black_score, Point(140, 380))
-        screen.blit(white_score, Point(140, 445))
+        screen.blit(black_score, (140, 380))
+        screen.blit(white_score, (140, 445))
 
     def draw_button(self, screen):
         pygame.draw.rect(screen, WHITE, (40, self.top + 490, 125, 40))
@@ -293,7 +291,7 @@ class Players(GameLogic):
         self.create_sounds()
 
     def create_sounds(self):
-        self.sound = pygame.mixer.Sound('sounds/disk.wav')
+        self.sound = pygame.mixer.Sound(Sounds.DISK.filepath)
 
     def reverse(self):
         self.sound.play()
@@ -403,7 +401,6 @@ class Opponent(Players):
         corners = arounds = sides = 0
 
         for r, c in self.get_placeables(disks, color):
-
             temp = copy.deepcopy(disks)
             temp[r][c] = color
             for row, col in self.find_reversibles(r, c, temp, color.value):
@@ -412,6 +409,7 @@ class Opponent(Players):
             corners += sum(1 for r, c in empty_corners if temp[r][c] == color)
             arounds += sum(1 for r, c in empty_around if temp[r][c] == color)
             sides += sum(1 for r, c in empty_sides if temp[r][c] == color)
+
         return corners, arounds, sides
 
     def evaluate(self, disks):
@@ -447,9 +445,7 @@ class Opponent(Players):
         return [cand for cand in candidates if cand.evaluation == max_cand.evaluation]
 
     def guess(self, grids, disks):
-        start = time.time()
         candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
-        print(time.time() - start)
 
         if all(c.evaluation == c.corners == c.arounds == c.sides == 0 for c in candidates):
             cand = random.choice(candidates)
