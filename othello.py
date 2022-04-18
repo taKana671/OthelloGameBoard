@@ -5,7 +5,6 @@ from enum import Enum, auto
 from pathlib import Path
 from pygame.locals import *
 
-# import time
 
 SCREEN = Rect(0, 0, 840, 700)
 
@@ -26,6 +25,9 @@ class Status(Enum):
     PLAY = auto()
     GAMEOVER = auto()
     SET_TIMER = auto()
+    DRAW = auto()
+    PASS = auto()
+    WIN = auto()
 
 
 class Files(Enum):
@@ -103,8 +105,7 @@ class Board:
         self.side = self.grid_num * self.grid_size
         self.right = self.left + self.side
         self.bottom = self.top + self.side
-        self.show_pass = False
-        self.show_winner = False
+        self.status = Status.PLAY
         self.disks = disks
         self.display_group = display_group
         self.set_displays()
@@ -120,6 +121,7 @@ class Board:
         text_font = pygame.font.SysFont(None, 30)
         self.text_pass = text_font.render('PASS', True, RED)
         self.text_win = text_font.render('WIN', True, RED)
+        self.text_draw = text_font.render('DRAW', True, RED)
         self.score_font = pygame.font.SysFont(None, 40)
 
     def draw_background(self, screen):
@@ -138,10 +140,12 @@ class Board:
         pygame.draw.rect(screen, GREEN, (40, self.top + 70, 80, 100))
         pygame.draw.ellipse(screen, DARK_GREEN, Rect(50, 220, 60, 10), width=0)
         screen.blit(self.text_turn, (35, self.top + 10))
-        if self.show_pass:
+        if self.status == Status.PASS:
             screen.blit(self.text_pass, (130, 180))
-        if self.show_winner:
+        if self.status == Status.WIN:
             screen.blit(self.text_win, (130, 180))
+        if self.status == Status.DRAW:
+            screen.blit(self.text_draw, (130, 180))
 
     def set_turn(self, disk):
         disk = DisplayDisk(disk.filepath)
@@ -424,7 +428,7 @@ class Opponent(Players):
             - (not_corner_white - not_corner_black) \
             + 21 * (corner_white - corner_black) \
             + 8 * (side_white - side_black) \
-            - 10 * (corner_white - around_black)
+            - 10 * (around_white - around_black)
 
         return evaluation
 
@@ -446,9 +450,7 @@ class Opponent(Players):
         return [cand for cand in candidates if cand.evaluation == max_cand.evaluation]
 
     def guess(self, grids, disks):
-        # start = time.time()
         candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
-        # print(time.time() - start)
 
         if all(c.evaluation == c.corners == c.arounds == c.sides == 0 for c in candidates):
             cand = random.choice(candidates)
@@ -554,8 +556,7 @@ class Othello:
         self.event = None
         self.delete_disks()
         self.setup()
-        self.board.show_winner = False
-        self.board.show_pass = False
+        self.board.status = Status.PLAY
         self.board.black_score = self.board.white_score = ''
         self.board.set_turn(self.player.display_disk)
         self.status = Status.PLAY
@@ -590,7 +591,7 @@ class Othello:
             self.set_timer(self._gameover)
 
     def pass_turn(self):
-        self.board.show_pass = False
+        self.board.status = Status.PLAY
         pygame.event.post(pygame.event.Event(self._change))
         self.set_timer(self._change)
 
@@ -603,19 +604,26 @@ class Othello:
 
     def guess_placeable(self):
         current_player = self.player if self.player.turn else self.other
+        next_player = self.player if not self.player.turn else self.other
         if not current_player.has_placeables(self.disks, current_player.color):
-            self.board.show_pass = True
-            self.set_timer(self._pass)
+            if not next_player.has_placeables(self.disks, next_player.color):
+                self.set_timer(self._gameover)
+            else:
+                self.board.status = Status.PASS
+                self.set_timer(self._pass)
         else:
             if self.other.turn:
                 self.set_timer(self._place)
 
     def game_over(self):
-        disk = self.player.display_disk \
-            if self.board.black_score > self.board.white_score else self.other.display_disk
-        self.board.set_turn(disk)
-        self.board.show_winner = True
-        self.satus = Status.GAMEOVER
+        if self.board.black_score == self.board.white_score:
+            self.board.status = Status.DRAW
+        else:
+            disk = self.player.display_disk \
+                if self.board.black_score > self.board.white_score else self.other.display_disk
+            self.board.set_turn(disk)
+            self.board.status = Status.WIN
+            self.satus = Status.GAMEOVER
 
     def run(self):
         clock = pygame.time.Clock()
@@ -647,22 +655,22 @@ class Othello:
                 if event.type == MOUSEMOTION:
                     x, y = event.pos
                     self.cursor.move(Point(*event.pos))
-                if self.status == Status.PLAY:
-                    if event.type == self._reverse:
-                        self.reverse_disks()
-                    if event.type == self._place:
-                        self.place_disk()
-                    if event.type == self._change:
-                        self.change_players()
-                    if event.type == self._guess:
-                        self.guess_placeable()
-                    if event.type == self._pass:
-                        self.pass_turn()
-                    if event.type == self._gameover:
-                        self.game_over()
-                    # if event.type == MOUSEBUTTONDOWN and event.button == 1:
-                    if event.type == MOUSEBUTTONUP and event.button == 1:
-                        self.click(event.pos)
+                # if self.status == Status.PLAY:
+                if event.type == self._reverse:
+                    self.reverse_disks()
+                if event.type == self._place:
+                    self.place_disk()
+                if event.type == self._change:
+                    self.change_players()
+                if event.type == self._guess:
+                    self.guess_placeable()
+                if event.type == self._pass:
+                    self.pass_turn()
+                if event.type == self._gameover:
+                    self.game_over()
+                # if event.type == MOUSEBUTTONDOWN and event.button == 1:
+                if event.type == MOUSEBUTTONUP and event.button == 1:
+                    self.click(event.pos)
 
             pygame.display.update()
 
