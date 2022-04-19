@@ -92,6 +92,10 @@ class Button(pygame.sprite.Sprite):
         self.image = pygame.image.load(file_path).convert_alpha()
         self.rect = self.image.get_rect()
         self.rect.centerx, self.rect.centery = center
+        self.left = self.rect.left
+        self.right = self.rect.left + self.rect.width
+        self.top = self.rect.top
+        self.bottom = self.rect.top + self.rect.height
 
 
 class Board:
@@ -212,17 +216,28 @@ class Cursor(pygame.sprite.Sprite):
     def calc_distance(self, pt1, pt2):
         return ((pt2.x - pt1.x) ** 2 + (pt2.y - pt1.y) ** 2) ** 0.5
 
-    def move(self, cursor_pos):
+    def hover_button(self, cursor_pos):
+        if self.board.button.left <= cursor_pos.x <= self.board.button.right and \
+                self.board.button.top <= cursor_pos.y <= self.board.button.bottom:
+            return True
+        return False
+
+    def hover_grid(self, cursor_pos):
         if self.board.left <= cursor_pos.x <= self.board.right and \
                 self.board.top <= cursor_pos.y <= self.board.bottom:
             row, col = self.board.find_position(*cursor_pos)
             grid_center = self.board.grid_center(row, col)
             if self.calc_distance(cursor_pos, grid_center) <= 30:
-                self.visible = True
-                pygame.mouse.set_visible(False)
-                self.rect.centerx = cursor_pos.x + 3
-                self.rect.top = cursor_pos.y
-                return
+                return True
+        return False
+
+    def show(self, cursor_pos):
+        if self.hover_grid(cursor_pos) or self.hover_button(cursor_pos):
+            self.visible = True
+            pygame.mouse.set_visible(False)
+            self.rect.centerx = cursor_pos.x + 3
+            self.rect.top = cursor_pos.y
+            return
         self.visible = False
         pygame.mouse.set_visible(True)
 
@@ -654,7 +669,7 @@ class Othello:
                     running = False
                 if event.type == MOUSEMOTION:
                     x, y = event.pos
-                    self.cursor.move(Point(*event.pos))
+                    self.cursor.show(Point(*event.pos))
                 # if self.status == Status.PLAY:
                 if event.type == self._reverse:
                     self.reverse_disks()
