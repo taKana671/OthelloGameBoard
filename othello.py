@@ -1,5 +1,6 @@
 import pygame
 import random
+import sys
 from collections import namedtuple
 from enum import Enum, auto
 from pathlib import Path
@@ -7,10 +8,6 @@ from pygame.locals import *
 
 
 SCREEN = Rect(0, 0, 840, 700)
-
-
-Point = namedtuple('Point', 'x y')
-Candidate = namedtuple('Candidate', 'evaluation row col corners arounds sides')
 
 DARK_GREEN = (0, 70, 0)
 GREEN = (0, 100, 0)
@@ -21,9 +18,13 @@ WHITE = (255, 255, 255)
 GRAY = (221, 221, 221)
 
 
+Point = namedtuple('Point', 'x y')
+Candidate = namedtuple('Candidate', 'evaluation row col corners arounds sides')
+
+
 class Status(Enum):
+
     PLAY = auto()
-    GAMEOVER = auto()
     SET_TIMER = auto()
     DRAW = auto()
     PASS = auto()
@@ -87,7 +88,7 @@ class DisplayDisk(pygame.sprite.Sprite):
 
 class Button(pygame.sprite.Sprite):
 
-    def __init__(self, file_path, center):
+    def __init__(self, file_path, center, game):
         super().__init__(self.containers)
         self.image = pygame.image.load(file_path).convert_alpha()
         self.rect = self.image.get_rect()
@@ -96,29 +97,50 @@ class Button(pygame.sprite.Sprite):
         self.right = self.rect.left + self.rect.width
         self.top = self.rect.top
         self.bottom = self.rect.top + self.rect.height
+        self.game = game
+
+    def click(self):
+        self.game.board.clear()
+        self.game.start()
 
 
 class Board:
 
     grid_num = 8
 
-    def __init__(self, disks, display_group):
+    def __init__(self, game, display_group):
         self.grid_size = 70
         self.left = 220
         self.top = 70
         self.side = self.grid_num * self.grid_size
         self.right = self.left + self.side
         self.bottom = self.top + self.side
-        self.status = Status.PLAY
-        self.disks = disks
+        self.disks = game.disks
         self.display_group = display_group
-        self.set_displays()
-        self.black_score = self.white_score = ''
+        self.set_displays(game)
 
-    def set_displays(self):
+    def setup(self):
+        for r in range(3, 5):
+            for c in range(3, 5):
+                if r == c:
+                    color = Piece.WHITE
+                else:
+                    color = Piece.BLACK
+                self.place(r, c, color)
+
+        self.black_score = self.white_score = ''
+        self.status = Status.PLAY
+
+    def clear(self):
+        for r in range(self.grid_num):
+            for c in range(self.grid_num):
+                if disk := self.disks[r][c]:
+                    self.disks[r][c] = disk.kill()
+
+    def set_displays(self, game):
         _ = Disk(Piece.BLACK, (80, 390))
         _ = Disk(Piece.WHITE, (80, 455))
-        self.button = Button(Images.BUTTON.filepath, (102, self.top + 510))
+        self.button = Button(Images.BUTTON.filepath, (102, self.top + 510), game)
         title_font = pygame.font.SysFont(None, 50)
         self.text_turn = title_font.render('TURN', True, BLACK)
         self.text_score = title_font.render('SCORE', True, BLACK)
@@ -170,19 +192,20 @@ class Board:
     def draw_button(self, screen):
         pygame.draw.rect(screen, WHITE, (40, self.top + 490, 125, 40))
 
+    def draw_grids(self, screen):
+        x, y = self.left, self.top
+        for i in range(self.grid_num + 1):
+            pygame.draw.line(screen, BLACK, (self.left, y), (self.right, y), 2)
+            pygame.draw.line(screen, BLACK, (x, self.top), (x, self.bottom), 2)
+            x += self.grid_size
+            y += self.grid_size
+
     def draw(self, screen):
         self.draw_background(screen)
         self.draw_turn_display(screen)
         self.draw_score_display(screen)
         self.draw_button(screen)
-
-        x, y = self.left, self.top
-
-        for i in range(self.grid_num + 1):
-            pygame.draw.line(screen, (0, 0, 0), (self.left, y), (self.right, y), 2)
-            pygame.draw.line(screen, (0, 0, 0), (x, self.top), (x, self.bottom), 2)
-            x += self.grid_size
-            y += self.grid_size
+        self.draw_grids(screen)
 
     def find_position(self, x, y):
         row = (y - self.top) // self.grid_size
@@ -302,7 +325,7 @@ class GameLogic:
 
 class Players(GameLogic):
 
-    def __init__(self, board, color, display_disk, turn):
+    def __init__(self, board, color, display_disk, turn=False):
         self.board = board
         self.color = color
         self.display_disk = display_disk
@@ -330,7 +353,7 @@ class Players(GameLogic):
 class Player(Players):
 
     def __init__(self, board):
-        super().__init__(board, Piece.BLACK, Images.BLACK_DISPLAY, True)
+        super().__init__(board, Piece.BLACK, Images.BLACK_DISPLAY)
 
     def place(self, pos):
         row, col = self.board.find_position(*pos)
@@ -342,7 +365,7 @@ class Player(Players):
 class Opponent(Players):
 
     def __init__(self, board):
-        super().__init__(board, Piece.WHITE, Images.WHITE_DISPLAY, False)
+        super().__init__(board, Piece.WHITE, Images.WHITE_DISPLAY)
 
         self.around_corners = [
             (0, 1), (1, 0), (1, 1),
@@ -522,16 +545,12 @@ class Othello:
         Cursor.containers = self.cursor_group
         DisplayDisk.containers = self.display_group
         Button.containers = self.disk_group
-        self.timer = 0
-        self.event = None
-        self.status = Status.PLAY
         self.disks = [[None for _ in range(Board.grid_num)] for _ in range(Board.grid_num)]
-        self.board = Board(self.disks, self.display_group)
+        self.board = Board(self, self.display_group)
         self.cursor = Cursor(self.board)
         self.player = Player(self.board)
         self.other = Opponent(self.board)
         self.create_events()
-        self.setup()
 
     def create_events(self):
         self._place = pygame.USEREVENT + 0
@@ -540,15 +559,6 @@ class Othello:
         self._guess = pygame.USEREVENT + 3
         self._pass = pygame.USEREVENT + 4
         self._gameover = pygame.USEREVENT + 5
-
-    def setup(self):
-        for r in range(3, 5):
-            for c in range(3, 5):
-                if r == c:
-                    color = Piece.WHITE
-                else:
-                    color = Piece.BLACK
-                self.board.place(r, c, color)
 
     def calc_score(self):
         black = sum(sum(
@@ -560,19 +570,12 @@ class Othello:
             return False
         return True
 
-    def delete_disks(self):
-        for r in range(Board.grid_num):
-            for c in range(Board.grid_num):
-                if disk := self.disks[r][c]:
-                    self.disks[r][c] = disk.kill()
-
-    def restart_game(self):
+    def start(self):
         self.timer = 0
         self.event = None
-        self.delete_disks()
-        self.setup()
-        self.board.status = Status.PLAY
-        self.board.black_score = self.board.white_score = ''
+        self.board.setup()
+        self.player.turn = True
+        self.other.turn = False
         self.board.set_turn(self.player.display_disk)
         self.status = Status.PLAY
 
@@ -584,14 +587,11 @@ class Othello:
         self.event = pygame.event.Event(event_type)
         self.timer = t
 
-    def click(self, click_pos):
-        if self.board.button.rect.collidepoint(*click_pos):
-            self.restart_game()
-        else:
-            if self.player.turn and self.cursor.visible:
-                if self.player.has_placeables(self.disks, self.player.color):
-                    if self.player.place(Point(*click_pos)):
-                        self.set_timer(self._reverse)
+    def player_click(self, click_pos):
+        if self.player.turn and self.cursor.visible:
+            if self.player.has_placeables(self.disks, self.player.color):
+                if self.player.place(Point(*click_pos)):
+                    self.set_timer(self._reverse)
 
     def place_disk(self):
         self.other.place()
@@ -638,14 +638,12 @@ class Othello:
                 if self.board.black_score > self.board.white_score else self.other.display_disk
             self.board.set_turn(disk)
             self.board.status = Status.WIN
-            self.satus = Status.GAMEOVER
 
     def run(self):
         clock = pygame.time.Clock()
-        self.board.set_turn(self.player.display_disk)
-        running = True
+        self.start()
 
-        while running:
+        while True:
             if self.status == Status.SET_TIMER:
                 self.timer -= 1
                 if self.timer == 0:
@@ -666,11 +664,11 @@ class Othello:
 
             for event in pygame.event.get():
                 if event.type == QUIT:
-                    running = False
+                    pygame.quit()
+                    sys.exit()
                 if event.type == MOUSEMOTION:
                     x, y = event.pos
                     self.cursor.show(Point(*event.pos))
-                # if self.status == Status.PLAY:
                 if event.type == self._reverse:
                     self.reverse_disks()
                 if event.type == self._place:
@@ -685,7 +683,10 @@ class Othello:
                     self.game_over()
                 # if event.type == MOUSEBUTTONDOWN and event.button == 1:
                 if event.type == MOUSEBUTTONUP and event.button == 1:
-                    self.click(event.pos)
+                    if self.board.button.rect.collidepoint(*event.pos):
+                        self.board.button.click()
+                    else:
+                        self.player_click(event.pos)
 
             pygame.display.update()
 
