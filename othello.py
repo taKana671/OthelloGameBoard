@@ -492,13 +492,14 @@ class Opponent(Players):
 
         if all(c.evaluation == c.corners == c.arounds == c.sides == 0 for c in candidates):
             cand = random.choice(candidates)
-        elif filtered := [c for c in candidates if c.corners == 0 and c.arounds > 0 and c.sides == 0]:
+        if filtered := [c for c in candidates if c.corners == 0 and c.arounds > 0 and c.sides == 0]:
             filtered.sort(key=lambda x: (-x.evaluation, -x.arounds))
             cand = filtered[0]
         elif filtered := [c for c in candidates if c.corners == 0 and c.arounds > 0]:
             filtered.sort(key=lambda x: (-x.evaluation, x.sides, -x.arounds))
             cand = filtered[0]
         elif filtered := [c for c in candidates if c.corners == 0 and c.sides == 0]:
+            filtered.sort(key=lambda x: -x.evaluation)
             cand = max(filtered, key=lambda x: x.evaluation)
         elif filtered := [cand for cand in candidates if cand.corners == 0]:
             filtered.sort(key=lambda x: (-x.evaluation, x.sides))
