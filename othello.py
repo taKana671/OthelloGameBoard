@@ -29,6 +29,7 @@ class Status(Enum):
     DRAW = auto()
     PASS = auto()
     WIN = auto()
+    GAMEOVER = auto()
 
 
 class Files(Enum):
@@ -50,10 +51,16 @@ class Piece(Files):
 
 class Images(Files):
 
-    BLACK_DISPLAY = auto()
-    WHITE_DISPLAY = auto()
-    CURSOR = auto()
-    BUTTON = auto()
+    BLACK_DISPLAY = 0
+    WHITE_DISPLAY = 1
+    CURSOR = 2
+    BUTTON = 3
+
+    @classmethod
+    def get_image(cls, piece):
+        for member in cls.__members__.values():
+            if member.value == piece.value:
+                return member
 
 
 class Sounds(Files):
@@ -100,6 +107,8 @@ class Button(pygame.sprite.Sprite):
         self.game = game
 
     def click(self):
+        if self.game.status == Status.GAMEOVER:
+            self.game.swap_colors()
         self.game.board.clear()
         self.game.start()
 
@@ -118,6 +127,7 @@ class Board:
         self.disks = game.disks
         self.display_group = display_group
         self.set_displays(game)
+        self.player_white = False
 
     def setup(self):
         for r in range(3, 5):
@@ -200,12 +210,18 @@ class Board:
             x += self.grid_size
             y += self.grid_size
 
+    def draw_players_color(self, screen):
+        pygame.draw.circle(screen, BLACK, (500, 670), 8)
+        if self.player_white:
+            pygame.draw.circle(screen, WHITE, (500, 670), 7)
+
     def draw(self, screen):
         self.draw_background(screen)
         self.draw_turn_display(screen)
         self.draw_score_display(screen)
         self.draw_button(screen)
         self.draw_grids(screen)
+        self.draw_players_color(screen)
 
     def find_position(self, x, y):
         row = (y - self.top) // self.grid_size
@@ -325,10 +341,11 @@ class GameLogic:
 
 class Players(GameLogic):
 
-    def __init__(self, board, color, display_disk, turn=False):
+    # def __init__(self, board, color, display_disk, turn=False):
+    def __init__(self, board, color, turn=False):
         self.board = board
         self.color = color
-        self.display_disk = display_disk
+        self.display_disk = Images.get_image(color)
         self.turn = turn
         self.clicked = None
         self.create_sounds()
@@ -352,8 +369,9 @@ class Players(GameLogic):
 
 class Player(Players):
 
-    def __init__(self, board):
-        super().__init__(board, Piece.BLACK, Images.BLACK_DISPLAY)
+    def __init__(self, board, piece):
+        super().__init__(board, piece)
+        # super().__init__(board, piece, Images.BLACK_DISPLAY)
 
     def place(self, pos):
         row, col = self.board.find_position(*pos)
@@ -364,8 +382,9 @@ class Player(Players):
 
 class Opponent(Players):
 
-    def __init__(self, board):
-        super().__init__(board, Piece.WHITE, Images.WHITE_DISPLAY)
+    def __init__(self, board, piece):
+        super().__init__(board, piece)
+        # super().__init__(board, Piece.WHITE, Images.WHITE_DISPLAY)
 
         self.around_corners = [
             (0, 1), (1, 0), (1, 1),
@@ -415,17 +434,28 @@ class Opponent(Players):
                     yield (r, c)
 
     def counter(self, disks, grids):
-        black = white = 0
+        # black = white = 0
+
+        # for r, c in grids():
+        #     if not disks[r][c]:
+        #         continue
+        #     if disks[r][c] == self.color:
+        #         white += 1
+        #     else:
+        #         black += 1
+
+        # return black, white
+        opponent = own = 0
 
         for r, c in grids():
             if not disks[r][c]:
                 continue
             if disks[r][c] == self.color:
-                white += 1
+                own += 1
             else:
-                black += 1
+                opponent += 1
 
-        return black, white
+        return opponent, own
 
     def copy_current_board(self):
         disks = [[None for _ in range(self.board.grid_num)] for _ in range(self.board.grid_num)]
@@ -456,17 +486,29 @@ class Opponent(Players):
         return corners, arounds, sides
 
     def evaluate(self, disks):
-        corner_black, corner_white = self.counter(disks, self._corners)
-        not_corner_black, not_corner_white = self.counter(disks, self._non_corners)
+        corner_opponent, corner_own = self.counter(disks, self._corners)
+        not_corner_opponent, not_corner_own = self.counter(disks, self._non_corners)
         corners = (disks[r][c] for r, c in self.corners)
-        around_black, around_white = self.counter(disks, lambda: self._around_corners(corners))
-        side_black, side_white = self.counter(disks, self._sides)
+        around_opponent, around_own = self.counter(disks, lambda: self._around_corners(corners))
+        side_opponent, side_own = self.counter(disks, self._sides)
 
-        evaluation = (corner_white - corner_black) \
-            - (not_corner_white - not_corner_black) \
-            + 21 * (corner_white - corner_black) \
-            + 8 * (side_white - side_black) \
-            - 10 * (around_white - around_black)
+        evaluation = (corner_own - corner_opponent) \
+            - (not_corner_own - not_corner_opponent) \
+            + 21 * (corner_own - corner_opponent) \
+            + 8 * (side_own - side_opponent) \
+            - 10 * (around_own - around_opponent)
+
+        # corner_black, corner_white = self.counter(disks, self._corners)
+        # not_corner_black, not_corner_white = self.counter(disks, self._non_corners)
+        # corners = (disks[r][c] for r, c in self.corners)
+        # around_black, around_white = self.counter(disks, lambda: self._around_corners(corners))
+        # side_black, side_white = self.counter(disks, self._sides)
+
+        # evaluation = (corner_white - corner_black) \
+        #     - (not_corner_white - not_corner_black) \
+        #     + 21 * (corner_white - corner_black) \
+        #     + 8 * (side_white - side_black) \
+        #     - 10 * (around_white - around_black)
 
         return evaluation
 
@@ -548,8 +590,9 @@ class Othello:
         self.disks = [[None for _ in range(Board.grid_num)] for _ in range(Board.grid_num)]
         self.board = Board(self, self.display_group)
         self.cursor = Cursor(self.board)
-        self.player = Player(self.board)
-        self.other = Opponent(self.board)
+        self.player_piece = Piece.BLACK
+        self.opponent_piece = Piece.WHITE
+        self.status = None
         self.create_events()
 
     def create_events(self):
@@ -570,12 +613,18 @@ class Othello:
             return False
         return True
 
+    def swap_colors(self):
+        self.player_piece, self.opponent_piece = self.opponent_piece, self.player_piece
+        self.board.player_white = True if self.player_piece == Piece.WHITE else False
+
     def start(self):
         self.timer = 0
         self.event = None
         self.board.setup()
+        self.player = Player(self.board, self.player_piece)
+        self.opponent = Opponent(self.board, self.opponent_piece)
         self.player.turn = True
-        self.other.turn = False
+        self.opponent.turn = False
         self.board.set_turn(self.player.display_disk)
         self.status = Status.PLAY
 
@@ -594,11 +643,11 @@ class Othello:
                     self.set_timer(self._reverse)
 
     def place_disk(self):
-        self.other.place()
+        self.opponent.place()
         self.set_timer(self._reverse)
 
     def reverse_disks(self):
-        current_player = self.player if self.player.turn else self.other
+        current_player = self.player if self.player.turn else self.opponent
         current_player.reverse()
         if self.calc_score():
             self.set_timer(self._change)
@@ -612,14 +661,14 @@ class Othello:
 
     def change_players(self):
         self.player.turn = not self.player.turn
-        self.other.turn = not self.other.turn
-        next_player = self.player if self.player.turn else self.other
+        self.opponent.turn = not self.opponent.turn
+        next_player = self.player if self.player.turn else self.opponent
         self.board.set_turn(next_player.display_disk)
         self.set_timer(self._guess)
 
     def guess_placeable(self):
-        current_player = self.player if self.player.turn else self.other
-        next_player = self.player if not self.player.turn else self.other
+        current_player = self.player if self.player.turn else self.opponent
+        next_player = self.player if not self.player.turn else self.opponent
         if not current_player.has_placeables(self.disks, current_player.color):
             if not next_player.has_placeables(self.disks, next_player.color):
                 self.set_timer(self._gameover)
@@ -627,7 +676,7 @@ class Othello:
                 self.board.status = Status.PASS
                 self.set_timer(self._pass)
         else:
-            if self.other.turn:
+            if self.opponent.turn:
                 self.set_timer(self._place)
 
     def game_over(self):
@@ -635,9 +684,10 @@ class Othello:
             self.board.status = Status.DRAW
         else:
             disk = self.player.display_disk \
-                if self.board.black_score > self.board.white_score else self.other.display_disk
+                if self.board.black_score > self.board.white_score else self.opponent.display_disk
             self.board.set_turn(disk)
             self.board.status = Status.WIN
+        self.status = Status.GAMEOVER
 
     def run(self):
         clock = pygame.time.Clock()
