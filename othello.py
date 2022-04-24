@@ -108,7 +108,6 @@ class Button(pygame.sprite.Sprite):
 
     def click(self):
         if self.game.status == Status.GAMEOVER:
-            self.game.flag = True
             self.game.swap_colors()
         self.game.board.clear()
         self.game.start()
