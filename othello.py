@@ -108,6 +108,7 @@ class Button(pygame.sprite.Sprite):
 
     def click(self):
         if self.game.status == Status.GAMEOVER:
+            self.game.flag = True
             self.game.swap_colors()
         self.game.board.clear()
         self.game.start()
@@ -341,14 +342,16 @@ class GameLogic:
 
 class Players(GameLogic):
 
-    # def __init__(self, board, color, display_disk, turn=False):
-    def __init__(self, board, color, turn=False):
+    def __init__(self, board, color):
         self.board = board
-        self.color = color
-        self.display_disk = Images.get_image(color)
-        self.turn = turn
+        self.set_color(color)
+        self.turn = None
         self.clicked = None
         self.create_sounds()
+
+    def set_color(self, color):
+        self.color = color
+        self.display_disk = Images.get_image(color)
 
     def create_sounds(self):
         self.sound = pygame.mixer.Sound(Sounds.DISK.filepath)
@@ -371,7 +374,6 @@ class Player(Players):
 
     def __init__(self, board, piece):
         super().__init__(board, piece)
-        # super().__init__(board, piece, Images.BLACK_DISPLAY)
 
     def place(self, pos):
         row, col = self.board.find_position(*pos)
@@ -384,7 +386,6 @@ class Opponent(Players):
 
     def __init__(self, board, piece):
         super().__init__(board, piece)
-        # super().__init__(board, Piece.WHITE, Images.WHITE_DISPLAY)
 
         self.around_corners = [
             (0, 1), (1, 0), (1, 1),
@@ -434,17 +435,6 @@ class Opponent(Players):
                     yield (r, c)
 
     def counter(self, disks, grids):
-        # black = white = 0
-
-        # for r, c in grids():
-        #     if not disks[r][c]:
-        #         continue
-        #     if disks[r][c] == self.color:
-        #         white += 1
-        #     else:
-        #         black += 1
-
-        # return black, white
         opponent = own = 0
 
         for r, c in grids():
@@ -497,18 +487,6 @@ class Opponent(Players):
             + 21 * (corner_own - corner_opponent) \
             + 8 * (side_own - side_opponent) \
             - 10 * (around_own - around_opponent)
-
-        # corner_black, corner_white = self.counter(disks, self._corners)
-        # not_corner_black, not_corner_white = self.counter(disks, self._non_corners)
-        # corners = (disks[r][c] for r, c in self.corners)
-        # around_black, around_white = self.counter(disks, lambda: self._around_corners(corners))
-        # side_black, side_white = self.counter(disks, self._sides)
-
-        # evaluation = (corner_white - corner_black) \
-        #     - (not_corner_white - not_corner_black) \
-        #     + 21 * (corner_white - corner_black) \
-        #     + 8 * (side_white - side_black) \
-        #     - 10 * (around_white - around_black)
 
         return evaluation
 
@@ -590,8 +568,8 @@ class Othello:
         self.disks = [[None for _ in range(Board.grid_num)] for _ in range(Board.grid_num)]
         self.board = Board(self, self.display_group)
         self.cursor = Cursor(self.board)
-        self.player_piece = Piece.BLACK
-        self.opponent_piece = Piece.WHITE
+        self.player = Player(self.board, Piece.BLACK)
+        self.opponent = Opponent(self.board, Piece.WHITE)
         self.status = None
         self.create_events()
 
@@ -614,19 +592,23 @@ class Othello:
         return True
 
     def swap_colors(self):
-        self.player_piece, self.opponent_piece = self.opponent_piece, self.player_piece
-        self.board.player_white = True if self.player_piece == Piece.WHITE else False
+        self.player.set_color(Piece.WHITE if self.player.color == Piece.BLACK else Piece.BLACK)
+        self.opponent.set_color(Piece.WHITE if self.opponent.color == Piece.BLACK else Piece.BLACK)
+        self.board.player_white = True if self.player.color == Piece.WHITE else False
 
     def start(self):
         self.timer = 0
         self.event = None
         self.board.setup()
-        self.player = Player(self.board, self.player_piece)
-        self.opponent = Opponent(self.board, self.opponent_piece)
-        self.player.turn = True
-        self.opponent.turn = False
-        self.board.set_turn(self.player.display_disk)
+        self.player.turn = True if self.player.color == Piece.BLACK else False
+        self.opponent.turn = True if self.opponent.color == Piece.BLACK else False
         self.status = Status.PLAY
+
+        if self.player.turn:
+            self.board.set_turn(self.player.display_disk)
+        else:
+            self.board.set_turn(self.opponent.display_disk)
+            self.set_timer(self._place)
 
     def set_timer(self, event_type, t=40):
         """Using pygame.set_timer resulted in program crash, but no errors
@@ -656,19 +638,19 @@ class Othello:
 
     def pass_turn(self):
         self.board.status = Status.PLAY
-        pygame.event.post(pygame.event.Event(self._change))
         self.set_timer(self._change)
 
     def change_players(self):
         self.player.turn = not self.player.turn
         self.opponent.turn = not self.opponent.turn
-        next_player = self.player if self.player.turn else self.opponent
-        self.board.set_turn(next_player.display_disk)
+        player = self.player if self.player.turn else self.opponent
+        self.board.set_turn(player.display_disk)
         self.set_timer(self._guess)
 
     def guess_placeable(self):
         current_player = self.player if self.player.turn else self.opponent
         next_player = self.player if not self.player.turn else self.opponent
+
         if not current_player.has_placeables(self.disks, current_player.color):
             if not next_player.has_placeables(self.disks, next_player.color):
                 self.set_timer(self._gameover)
@@ -683,8 +665,8 @@ class Othello:
         if self.board.black_score == self.board.white_score:
             self.board.status = Status.DRAW
         else:
-            disk = self.player.display_disk \
-                if self.board.black_score > self.board.white_score else self.opponent.display_disk
+            disk = Images.BLACK_DISPLAY\
+                if self.board.black_score > self.board.white_score else Images.WHITE_DISPLAY
             self.board.set_turn(disk)
             self.board.status = Status.WIN
         self.status = Status.GAMEOVER
