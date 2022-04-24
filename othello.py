@@ -108,7 +108,7 @@ class Button(pygame.sprite.Sprite):
 
     def click(self):
         if self.game.status == Status.GAMEOVER:
-            self.game.swap_colors()
+            self.game.change_first_player()
         self.game.board.clear()
         self.game.start()
 
@@ -590,17 +590,18 @@ class Othello:
             return False
         return True
 
-    def swap_colors(self):
-        self.player.set_color(Piece.WHITE if self.player.color == Piece.BLACK else Piece.BLACK)
-        self.opponent.set_color(Piece.WHITE if self.opponent.color == Piece.BLACK else Piece.BLACK)
-        self.board.player_white = True if self.player.color == Piece.WHITE else False
+    def change_first_player(self):
+        for player in (self.player, self.opponent):
+            color = Piece.WHITE if player.color == Piece.BLACK else Piece.BLACK
+            player.set_color(color)
+        self.board.player_white = self.player.color == Piece.WHITE
 
     def start(self):
         self.timer = 0
         self.event = None
         self.board.setup()
-        self.player.turn = True if self.player.color == Piece.BLACK else False
-        self.opponent.turn = True if self.opponent.color == Piece.BLACK else False
+        self.player.turn = self.player.color == Piece.BLACK
+        self.opponent.turn = self.opponent.color == Piece.BLACK
         self.status = Status.PLAY
 
         if self.player.turn:
@@ -617,6 +618,14 @@ class Othello:
         self.event = pygame.event.Event(event_type)
         self.timer = t
 
+    @property
+    def current_player(self):
+        return self.player if self.player.turn else self.opponent
+
+    @property
+    def next_player(self):
+        return self.player if not self.player.turn else self.opponent
+
     def player_click(self, click_pos):
         if self.player.turn and self.cursor.visible:
             if self.player.has_placeables(self.disks, self.player.color):
@@ -628,8 +637,7 @@ class Othello:
         self.set_timer(self._reverse)
 
     def reverse_disks(self):
-        current_player = self.player if self.player.turn else self.opponent
-        current_player.reverse()
+        self.current_player.reverse()
         if self.calc_score():
             self.set_timer(self._change)
         else:
@@ -639,19 +647,15 @@ class Othello:
         self.board.status = Status.PLAY
         self.set_timer(self._change)
 
-    def change_players(self):
+    def take_turns(self):
         self.player.turn = not self.player.turn
         self.opponent.turn = not self.opponent.turn
-        player = self.player if self.player.turn else self.opponent
-        self.board.set_turn(player.display_disk)
+        self.board.set_turn(self.current_player.display_disk)
         self.set_timer(self._guess)
 
     def guess_placeable(self):
-        current_player = self.player if self.player.turn else self.opponent
-        next_player = self.player if not self.player.turn else self.opponent
-
-        if not current_player.has_placeables(self.disks, current_player.color):
-            if not next_player.has_placeables(self.disks, next_player.color):
+        if not self.current_player.has_placeables(self.disks, self.current_player.color):
+            if not self.next_player.has_placeables(self.disks, self.next_player.color):
                 self.set_timer(self._gameover)
             else:
                 self.board.status = Status.PASS
@@ -705,7 +709,7 @@ class Othello:
                 if event.type == self._place:
                     self.place_disk()
                 if event.type == self._change:
-                    self.change_players()
+                    self.take_turns()
                 if event.type == self._guess:
                     self.guess_placeable()
                 if event.type == self._pass:
