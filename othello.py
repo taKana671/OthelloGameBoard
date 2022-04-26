@@ -109,6 +109,7 @@ class Button(pygame.sprite.Sprite):
     def click(self):
         if self.game.status == Status.GAMEOVER:
             self.game.change_first_player()
+            self.game.board.player_color = self.game.player.color
         self.game.board.clear()
         self.game.start()
 
@@ -127,7 +128,7 @@ class Board:
         self.disks = game.disks
         self.display_group = display_group
         self.set_displays(game)
-        self.player_white = False
+        self.player_color = None
 
     def setup(self):
         for r in range(3, 5):
@@ -212,7 +213,7 @@ class Board:
 
     def draw_players_color(self, screen):
         pygame.draw.circle(screen, BLACK, (500, 670), 8)
-        if self.player_white:
+        if self.player_color == Piece.WHITE:
             pygame.draw.circle(screen, WHITE, (500, 670), 7)
 
     def draw(self, screen):
@@ -594,7 +595,6 @@ class Othello:
         for player in (self.player, self.opponent):
             color = Piece.WHITE if player.color == Piece.BLACK else Piece.BLACK
             player.set_color(color)
-        self.board.player_white = self.player.color == Piece.WHITE
 
     def start(self):
         self.timer = 0
