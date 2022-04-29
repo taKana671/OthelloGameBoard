@@ -16,7 +16,7 @@ A python implementation of Othello Game Board
 
 ```
 >>>python othello.py
-```bash
+```
 
 * A small circle under grids shows your disk color.
 * Click on a grid to place a disk.
