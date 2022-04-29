@@ -3,6 +3,7 @@
 A python implementation of Othello Game Board
 
 # Demo
+![othello_demo](https://user-images.githubusercontent.com/48859041/165873279-78d8f820-c198-402f-ada6-00a0e3a91c8c.gif)
 
 # Requirements
 * Python 3.8
