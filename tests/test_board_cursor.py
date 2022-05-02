@@ -6,7 +6,7 @@ from pathlib import Path
 from pygame.locals import *
 from unittest import TestCase, main, mock
 
-from othello import Board, Othello, Piece, Status, Images, Point
+from othello import Board, Othello, Piece, Status, Images, Point, Cursor, Button
 
 
 class BoardTestCase(TestCase):
@@ -176,8 +176,120 @@ class BoardTestCase(TestCase):
             with self.subTest():
                 self.assertEqual(self.disks[row][col].color, color)
 
-    # def test_reverse(self):
+    def test_reverse(self):
+        tests = [
+            (2, 3, Piece.BLACK),
+            (4, 5, Piece.BLACK),
+            (0, 2, Piece.WHITE),
+            (5, 6, Piece.WHITE)
+        ]
+        for row, col, _ in tests:
+            self.disks[row][col] = self.mock_disk
 
+        with mock.patch('othello.Board.place') as mock_place:
+            for row, col, color in tests:
+                with self.subTest():
+                    self.board.reverse(row, col, color)
+                    self.assertTrue(self.disks[row][col] is None)
+                    mock_place.assert_called_once_with(row, col, color)
+                    mock_place.reset_mock()
+
+
+class CursorTestCase(TestCase):
+    """Tests for Cursor class
+    """
+
+    def setUp(self):
+        Cursor.containers = mock.MagicMock()
+        mock.patch('othello.pygame.image.load').start()
+        mock.patch('othello.pygame.sprite.Sprite').start()
+        mock.patch('othello.Board.set_displays').start()
+        rect = Rect(0, 0, 80, 50)
+        mock_image = mock.MagicMock()
+        mock_image.get_rect.return_value = rect
+        mock_scale = mock.patch('othello.pygame.transform.scale').start()
+        mock_scale.return_value = mock_image
+        board = Board(mock.MagicMock(), mock.MagicMock())
+        board.button = self.get_button()
+        self.cursor = Cursor(board)
+
+    def tearDown(self):
+        mock.patch.stopall()
+
+    def get_button(self):
+        button = mock.create_autospec(
+            spec=Button,
+            instance=True,
+            left=43,
+            right=162,
+            top=563,
+            bottom=597
+        )
+        return button
+
+    def test_calc_distance(self):
+        tests = [
+            [(Point(100, 200), Point(50, 80)), 130.0],
+            [(Point(20, 5), Point(40, 20)), 25.0]
+        ]
+        for test, expect in tests:
+            with self.subTest():
+                result = self.cursor.calc_distance(*test)
+                self.assertEqual(result, expect)
+
+    def test_hover_button(self):
+        tests = [
+            [Point(43, 563), True],
+            [Point(162, 597), True],
+            [Point(85, 580), True],
+            [Point(41, 570), False],
+            [Point(120, 598), False],
+            [Point(165, 602), False]
+        ]
+        for test, expect in tests:
+            with self.subTest(test):
+                result = self.cursor.hover_button(test)
+                self.assertEqual(result, expect)
+
+    def test_hover_grid(self):
+        tests = [
+            [Point(367, 284), False],
+            [Point(391, 313), True],
+            [Point(477, 214), False],
+            [Point(532, 239), True],
+            [Point(600, 284), False],
+            [Point(680, 321), True]
+        ]
+        for test, expect in tests:
+            with self.subTest(test):
+                result = self.cursor.hover_grid(test)
+                self.assertEqual(result, expect)
+
+    def test_show_false(self):
+        tests = [Point(367, 284), Point(41, 570), Point(20, 30)]
+
+        with mock.patch('othello.pygame.mouse.set_visible') as mock_set_visible:
+            for test in tests:
+                self.cursor.visible = True
+                with self.subTest(test):
+                    self.cursor.show(test)
+                    self.assertEqual(self.cursor.visible, False)
+                    mock_set_visible.assert_called_once_with(True)
+                    mock_set_visible.reset_mock()
+
+    def test_show_true(self):
+        tests = [Point(162, 597), Point(680, 321)]
+        expects = [(165, 597), (683, 321)]
+
+        with mock.patch('othello.pygame.mouse.set_visible') as mock_set_visible:
+            for test, expect in zip(tests, expects):
+                with self.subTest(test):
+                    self.cursor.show(test)
+                    self.assertEqual(self.cursor.visible, True)
+                    mock_set_visible.assert_called_once_with(False)
+                    self.assertEqual(
+                        (self.cursor.rect.centerx, self.cursor.rect.top), expect)
+                    mock_set_visible.reset_mock()
 
 
 if __name__ == '__main__':
