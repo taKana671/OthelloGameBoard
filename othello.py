@@ -431,6 +431,8 @@ class Opponent(Players):
     def _sides(self):
         for r in range(self.board.grid_num):
             for c in range(self.board.grid_num):
+                if (r, c) in self.corners:
+                    continue
                 if r in (0, 7) or c in (0, 7):
                     yield (r, c)
 
