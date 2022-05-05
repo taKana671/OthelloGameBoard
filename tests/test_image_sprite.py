@@ -29,6 +29,15 @@ class PieceTestCase(TestCase):
             with self.subTest(piece):
                 self.assertEqual(piece.filepath, expect)
 
+    def test_opposite(self):
+        tests = [Piece.BLACK, Piece.WHITE]
+        expects = [Piece.WHITE, Piece.BLACK]
+
+        for test, expect in zip(tests, expects):
+            with self.subTest(test):
+                result = Piece.opposite(test)
+                self.assertEqual(result, expect)
+
 
 class ImageTestCase(TestCase):
     """Tests for Images class

@@ -7,12 +7,12 @@ from pygame.locals import *
 from unittest import TestCase, main, mock
 
 from othello import Board, GameLogic, Piece, Disk, Players, \
-    Player, Images, Point, Opponent
+    Player, Images, Point, Opponent, Candidate
 
 
 class TestUtils:
 
-    def get_disks(self, black_pos, white_pos, black, white):
+    def get_disks(self, black_pos, white_pos, black=None, white=None):
         disks = [[None for _ in range(8)] for _ in range(8)]
 
         for r, c in black_pos:
@@ -171,9 +171,17 @@ class PlayersTestCase(TestCase):
         mock.patch.stopall()
 
     def test_set_color(self):
-        self.players.set_color(Piece.WHITE)
-        self.assertEqual(
-            self.players.display_disk, Images.WHITE_DISPLAY)
+        tests = [Piece.WHITE, Piece.BLACK]
+        expects = [
+            (Piece.WHITE, Piece.BLACK, Images.WHITE_DISPLAY),
+            (Piece.BLACK, Piece.WHITE, Images.BLACK_DISPLAY),
+        ]
+        for test, (color, opposite, display) in zip(tests, expects):
+            with self.subTest(test):
+                self.players.set_color(test)
+                self.assertEqual(self.players.color, color)
+                self.assertEqual(self.players.opposite_color, opposite)
+                self.assertEqual(self.players.display_disk, display)
 
     def test_reverse(self):
         positions = [(2, 3), (3, 3), (4, 3)]
@@ -267,7 +275,14 @@ class OpponentTestCase(TestCase, TestUtils):
 
     def setUp(self):
         mock.patch('othello.pygame.mixer.Sound').start()
-        self.disks = [[None for _ in range(8)] for _ in range(8)]
+        black_pos = [(2, 2), (3, 3), (3, 4), (4, 4)]
+        white_pos = [(4, 3), (5, 3), (5, 4), (5, 5)]
+        self.disks = self.get_disks(
+            black_pos,
+            white_pos,
+            self.get_disk_instance(Piece.BLACK),
+            self.get_disk_instance(Piece.WHITE)
+        )
         self.mock_board = self.get_board_instance(self.disks)
         self.opponent = Opponent(self.mock_board, Piece.WHITE)
 
@@ -336,19 +351,70 @@ class OpponentTestCase(TestCase, TestUtils):
                 self.assertEqual(result, expect)
 
     def test_counter_sides(self):
-        black_pos = [(1, 0), (3, 2), (1, 7)]
-        white_pos = [(0, 7), (7, 6), (6, 6), (4, 3)]
+        black_pos = [(1, 0), (3, 2), (1, 7), (0, 2), (0, 3), (4, 0)]
+        white_pos = [(0, 7), (7, 6), (6, 6), (4, 3), (7, 4), (4, 7)]
         disks = self.get_disks(black_pos, white_pos, Piece.BLACK, Piece.WHITE)
 
         tests = [
-            [Piece.BLACK, (1, 2)],
-            [Piece.WHITE, (2, 1)]
+            [Piece.BLACK, (2, 3)],
+            [Piece.WHITE, (3, 2)]
         ]
         for color, expect in tests:
             with self.subTest(color):
                 self.opponent.color = color
                 result = self.opponent.counter(disks, self.opponent._sides)
                 self.assertEqual(result, expect)
+
+    def test_copy_currnet_board(self):
+        result = self.opponent.copy_current_board()
+
+        for r in range(8):
+            for c in range(8):
+                with self.subTest((r, c)):
+                    if item := self.opponent.board.disks[r][c]:
+                        self.assertEqual(item.color, result[r][c])
+                    else:
+                        self.assertTrue(result[r][c] is None)
+
+    def test_simulate(self):
+        white_pos = [(0, 4), (1, 4), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (4, 2), (5, 1)]
+        black_pos = [(3, 2), (3, 3), (3, 4), (4, 3), (4, 4), (4, 5), (5, 5), (6, 5)]
+        disks = self.get_disks(black_pos, white_pos, Piece.BLACK, Piece.WHITE)
+        tests = [Piece.BLACK, Piece.WHITE]
+        expects = [(0, 4, 1), (0, 1, 0)]
+
+        for test, expect in zip(tests, expects):
+            with self.subTest():
+                result = self.opponent.simulate(disks, test)
+                self.assertEqual(result, expect)
+
+    def test_evaluate(self):
+        white_pos = [(0, 0), (0, 1), (0, 2), (1, 0), (2, 0)]
+        black_pos = [(0, 5), (1, 2), (1, 3), (1, 4), (2, 2), (2, 3), (3, 2), (3, 3)]
+        disks = self.get_disks(black_pos, white_pos, Piece.BLACK, Piece.WHITE)
+        result = self.opponent.evaluate(disks)
+        self.assertEqual(result, 34)
+
+    def test_find_best_move(self):
+        grids = [(2, 4), (4, 1)]
+        disks = self.get_disks([], [])
+        expect = [
+            Candidate(evaluation=10, row=2, col=4, corners=1, arounds=2, sides=3),
+            Candidate(evaluation=20, row=4, col=1, corners=4, arounds=5, sides=6)
+        ]
+
+        def find_reversibles(li):
+            for r, c in li:
+                yield (r, c)
+
+        with mock.patch('othello.GameLogic.find_reversibles') as mock_find, \
+                mock.patch('othello.Opponent.evaluate') as mock_evaluate, \
+                mock.patch('othello.Opponent.simulate') as mock_simulate:
+            mock_find.side_effect = [find_reversibles([(3, 4), (4, 4)]), find_reversibles([(4, 2), (4, 3)])]
+            mock_evaluate.side_effect = [10, 20]
+            mock_simulate.side_effect = [(1, 2, 3), (4, 5, 6)]
+            result = [cand for cand in self.opponent.find_best_move(grids, disks, Piece.WHITE)]
+            self.assertEqual(result, expect)
 
 
 if __name__ == '__main__':

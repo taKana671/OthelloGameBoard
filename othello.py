@@ -48,6 +48,12 @@ class Piece(Files):
     def color(self):
         return self.value
 
+    @classmethod
+    def opposite(cls, piece):
+        for member in cls.__members__.values():
+            if member.value != piece.value:
+                return member
+
 
 class Images(Files):
 
@@ -351,7 +357,8 @@ class Players(GameLogic):
 
     def set_color(self, color):
         self.color = color
-        self.display_disk = Images.get_image(color)
+        self.opposite_color = Piece.opposite(self.color)
+        self.display_disk = Images.get_image(self.color)
 
     def create_sounds(self):
         self.sound = pygame.mixer.Sound(Sounds.DISK.filepath)
@@ -431,7 +438,7 @@ class Opponent(Players):
     def _sides(self):
         for r in range(self.board.grid_num):
             for c in range(self.board.grid_num):
-                if (r, c) in self.corners:
+                if (r, c) in self.corners or (r, c) in self.around_corners:
                     continue
                 if r in (0, 7) or c in (0, 7):
                     yield (r, c)
@@ -461,8 +468,8 @@ class Opponent(Players):
     def simulate(self, disks, color):
         empty_corners = [(r, c) for r, c in self.corners if not disks[r][c]]
         empty_around = [(r, c) for r, c in self.around_corners if not disks[r][c]]
-        empty_sides = [(r, c) for r in range(self.board.grid_num) for c in range(self.board.grid_num) \
-                       if (r in (0, 7) or c in (0, 7)) and not disks[r][c]]
+        empty_sides = [(r, c) for (r, c) in self._sides() if not disks[r][c]]
+
         corners = arounds = sides = 0
 
         for r, c in self.get_placeables(disks, color):
@@ -499,15 +506,8 @@ class Opponent(Players):
             for row, col in self.find_reversibles(r, c, temp, color.value):
                 temp[row][col] = color
             evaluation = self.evaluate(temp)
-            corners, arounds, sides = self.simulate(temp, Piece.BLACK)
+            corners, arounds, sides = self.simulate(temp, self.opposite_color)
             yield Candidate(evaluation, r, c, corners, arounds, sides)
-
-    def count_disks(self):
-        return sum(1 for grids in self.board.disks for grid in grids if not grid)
-
-    def find_high_evaluation(self, candidates):
-        max_cand = max(candidates, key=lambda x: x.evaluation)
-        return [cand for cand in candidates if cand.evaluation == max_cand.evaluation]
 
     def guess(self, grids, disks):
         candidates = [cand for cand in self.find_best_move(grids, disks, self.color)]
@@ -595,7 +595,7 @@ class Othello:
 
     def change_first_player(self):
         for player in (self.player, self.opponent):
-            color = Piece.WHITE if player.color == Piece.BLACK else Piece.BLACK
+            color = Piece.opposite(player.color)
             player.set_color(color)
 
     def start(self):
