@@ -544,7 +544,7 @@ class Opponent(Players):
 
     def place(self):
         disks = self.copy_current_board()
-        placeable_grids = tuple(pos for pos in self.get_placeables(disks, self.color))
+        placeable_grids = [pos for pos in self.get_placeables(disks, self.color)]
 
         if not (pos := self.find_corners(placeable_grids)):
             if filtered := [grid for grid in placeable_grids if grid not in self.around_corners]:

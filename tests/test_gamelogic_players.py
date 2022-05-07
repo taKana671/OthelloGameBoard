@@ -45,6 +45,14 @@ class TestUtils:
         )
         return board
 
+    def find_best_move(self, cands):
+        for cand in cands:
+            yield cand
+
+    def get_placeables(self, positions):
+        for pos in positions:
+            yield pos
+
 
 class GameLogicTestCase(TestCase, TestUtils):
     """Tests for Board class
@@ -206,21 +214,7 @@ class PlayersTestCase(TestCase):
         self.mock_board.place.assert_called_once_with(5, 4, Piece.BLACK)
 
 
-# class PlayerCommon(TestCase):
-
-#     def setUp(self):
-#         mock.patch('othello.pygame.mixer.Sound').start()
-#         self.disks = [[None for _ in range(8)] for _ in range(8)]
-#         self.mock_board = mock.create_autospec(
-#             spec=Board, instance=True, disks=self.disks, grid_num=8)
-#         self.player = Player(self.mock_board, Piece.BLACK)
-
-#     def tearDown(self):
-#         mock.patch.stopall()
-
-class PlayerTestCase(TestCase, TestUtils):
-    """Tests for Player class
-    """
+class PlayerCommon(TestCase, TestUtils):
 
     def setUp(self):
         mock.patch('othello.pygame.mixer.Sound').start()
@@ -233,10 +227,18 @@ class PlayerTestCase(TestCase, TestUtils):
             self.get_disk_instance(Piece.WHITE)
         )
         self.mock_board = self.get_board_instance(self.disks)
-        self.player = Player(self.mock_board, Piece.BLACK)
 
     def tearDown(self):
         mock.patch.stopall()
+
+
+class PlayerTestCase(PlayerCommon):
+    """Tests for Player class
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.player = Player(self.mock_board, Piece.BLACK)
 
     def test_place_true(self):
         pt = Point(397, 512)
@@ -269,25 +271,13 @@ class PlayerTestCase(TestCase, TestUtils):
             mock_click.assert_not_called()
 
 
-class OpponentTestCase(TestCase, TestUtils):
+class OpponentTestCase(PlayerCommon):
     """Tests for Opponent class
     """
 
     def setUp(self):
-        mock.patch('othello.pygame.mixer.Sound').start()
-        black_pos = [(2, 2), (3, 3), (3, 4), (4, 4)]
-        white_pos = [(4, 3), (5, 3), (5, 4), (5, 5)]
-        self.disks = self.get_disks(
-            black_pos,
-            white_pos,
-            self.get_disk_instance(Piece.BLACK),
-            self.get_disk_instance(Piece.WHITE)
-        )
-        self.mock_board = self.get_board_instance(self.disks)
+        super().setUp()
         self.opponent = Opponent(self.mock_board, Piece.WHITE)
-
-    def tearDown(self):
-        mock.patch.stopall()
 
     def test_get_placeables(self):
         black_pos = [(2, 2), (3, 3), (3, 4), (4, 4)]
@@ -415,6 +405,87 @@ class OpponentTestCase(TestCase, TestUtils):
             mock_simulate.side_effect = [(1, 2, 3), (4, 5, 6)]
             result = [cand for cand in self.opponent.find_best_move(grids, disks, Piece.WHITE)]
             self.assertEqual(result, expect)
+
+    def test_guess_choice(self):
+        cands = [Candidate(0, 2, 4, 0, 0, 0), Candidate(0, 3, 4, 0, 0, 0), Candidate(0, 3, 5, 0, 0, 0)]
+
+        with mock.patch('othello.Opponent.find_best_move') as mock_best_move, \
+                mock.patch('othello.random.choice') as mock_choice:
+            mock_best_move.return_value = self.find_best_move(cands)
+            mock_choice.return_value = cands[1]
+            result = self.opponent.guess(mock.MagicMock(), mock.MagicMock())
+            mock_choice.assert_called_once()
+            self.assertEqual(result, (3, 4))
+
+    def test_guess(self):
+        tests = [
+            [Candidate(10, 2, 4, 0, 0, 0), Candidate(20, 3, 4, 0, 3, 0), Candidate(20, 3, 5, 0, 2, 0)],
+            [Candidate(10, 2, 4, 0, 3, 5), Candidate(10, 3, 4, 0, 2, 5), Candidate(10, 3, 5, 0, 1, 5)],
+            [Candidate(10, 2, 4, 0, 0, 0), Candidate(20, 3, 4, 0, 0, 0), Candidate(30, 3, 5, 0, 0, 0)],
+            [Candidate(10, 2, 4, 0, 0, 1), Candidate(30, 3, 4, 0, 0, 5), Candidate(30, 3, 5, 0, 0, 4)],
+            [Candidate(30, 2, 4, 1, 3, 0), Candidate(30, 3, 4, 1, 2, 0), Candidate(30, 3, 5, 2, 0, 0)],
+            [Candidate(30, 2, 4, 1, 3, 2), Candidate(30, 3, 4, 1, 3, 1), Candidate(30, 3, 5, 1, 2, 1)],
+            [Candidate(20, 2, 4, 1, 0, 0), Candidate(30, 3, 4, 2, 0, 0), Candidate(30, 3, 5, 1, 0, 0)],
+            [Candidate(20, 2, 4, 2, 0, 1), Candidate(20, 3, 4, 2, 0, 2), Candidate(10, 3, 5, 1, 0, 1)]
+        ]
+        expects = [(3, 4), (2, 4), (3, 5), (3, 5), (2, 4), (3, 4), (3, 5), (2, 4)]
+
+        with mock.patch('othello.Opponent.find_best_move') as mock_best_move:
+            for test, expect in zip(tests, expects):
+                with self.subTest(test):
+                    mock_best_move.return_value = self.find_best_move(test)
+                    result = self.opponent.guess(mock.MagicMock(), mock.MagicMock())
+                    self.assertEqual(result, (expect))
+
+    def test_place_corner(self):
+        positions = [(0, 0), (0, 7)]
+
+        with mock.patch('othello.Opponent.get_placeables') as mock_placeables, \
+                mock.patch('othello.Opponent.guess') as mock_guess, \
+                mock.patch('othello.Players.click') as mock_click:
+            mock_placeables.return_value = self.get_placeables(positions)
+            self.opponent.place()
+            mock_click.assert_called_once_with(*positions[0])
+            mock_guess.assert_not_called()
+
+    def test_place_filtered(self):
+        black_pos = [(2, 2), (3, 3), (3, 4), (4, 4)]
+        white_pos = [(4, 3), (5, 3), (5, 4), (5, 5)]
+        disks = self.get_disks(
+            black_pos, white_pos, Piece.BLACK, Piece.WHITE)
+        positions = [(0, 1), (1, 0), (2, 3), (3, 4), (4, 5)]
+        filtered = [(2, 3), (3, 4), (4, 5)]
+        guessed = (1, 3)
+
+        with mock.patch('othello.Opponent.get_placeables') as mock_placeables, \
+                mock.patch('othello.Opponent.guess') as mock_guess, \
+                mock.patch('othello.Players.click') as mock_click:
+            mock_placeables.return_value = self.get_placeables(positions)
+            mock_guess.return_value = guessed
+            self.opponent.place()
+
+            mock_placeables.assert_called_once_with(disks, Piece.WHITE)
+            mock_guess.assert_called_once_with(filtered, disks)
+            mock_click.assert_called_once_with(*guessed)
+
+    def test_place_no_filtered(self):
+        black_pos = [(2, 2), (3, 3), (3, 4), (4, 4)]
+        white_pos = [(4, 3), (5, 3), (5, 4), (5, 5)]
+        disks = self.get_disks(
+            black_pos, white_pos, Piece.BLACK, Piece.WHITE)
+        positions = [(0, 1), (1, 0), (1, 1)]
+        guessed = (1, 3)
+
+        with mock.patch('othello.Opponent.get_placeables') as mock_placeables, \
+                mock.patch('othello.Opponent.guess') as mock_guess, \
+                mock.patch('othello.Players.click') as mock_click:
+            mock_placeables.return_value = self.get_placeables(positions)
+            mock_guess.return_value = guessed
+            self.opponent.place()
+
+            mock_placeables.assert_called_once_with(disks, Piece.WHITE)
+            mock_guess.assert_called_once_with(positions, disks)
+            mock_click.assert_called_once_with(*guessed)
 
 
 if __name__ == '__main__':
