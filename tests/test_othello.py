@@ -24,6 +24,16 @@ class TestUtils:
         for m in mocks:
             m.reset_mock()
 
+    def set_event(self, *events):
+        def dummy_event():
+            for event in events:
+                yield mock.MagicMock(**event)
+        return dummy_event
+
+    def set_attrs(self, target, **attrs):
+        for key, val in attrs.items():
+            target.__dict__[key] = val
+
 
 class OthelloTestCase(TestCase, TestUtils):
 
@@ -32,17 +42,22 @@ class OthelloTestCase(TestCase, TestUtils):
             'othello.pygame.init',
             'othello.pygame.display.set_mode',
             'othello.pygame.display.set_caption',
-            'othello.pygame.sprite.RenderUpdates',
             'othello.pygame.sprite.GroupSingle',
             'othello.Board.set_displays',
+            'othello.Board.draw',
             'othello.pygame.image.load',
             'othello.pygame.transform.scale',
             'othello.Players.create_sounds',
-            'othello.pygame.time.Clock'
+            'othello.pygame.time.Clock',
+            'othello.pygame.display.update'
         ]
         for target in targets:
             mock.patch(target).start()
 
+        self.mock_event_post = mock.patch('othello.pygame.event.post').start()
+        self.mock_event_get = mock.patch('othello.pygame.event.get').start()
+        mock_render = mock.patch('othello.pygame.sprite.RenderUpdates').start()
+        mock_render.side_effect = [mock.MagicMock(), mock.MagicMock()]
         mock.patch('othello.pygame.USEREVENT', 0).start()
         self.othello = Othello()
 
@@ -81,8 +96,7 @@ class OthelloTestCase(TestCase, TestUtils):
             self.assertEqual(mock_set.call_args_list, calls)
 
     def test_start(self):
-        self.othello.timer = 10
-        self.othello.status = Status.GAMEOVER
+        self.set_attrs(self.othello, timer=10, status=Status.GAMEOVER)
 
         with mock.patch('othello.Board.setup') as mock_setup, \
                 mock.patch('othello.Board.set_turn') as mock_setturn:
@@ -275,6 +289,47 @@ class OthelloTestCase(TestCase, TestUtils):
                     self.assertEqual(self.othello.status, Status.GAMEOVER)
                     mock_turn.assert_called_once_with(expect)
                     mock_turn.reset_mock()
+
+    def run_game(self):
+        with self.assertRaises(SystemExit):
+            self.othello.run()
+
+    def test_run_timer(self):
+        self.set_attrs(self.othello, timer=1, status=Status.SET_TIMER, event=3)
+        dummy_events = self.set_event(dict(type=QUIT))
+        self.mock_event_get.return_value = dummy_events()
+
+        with mock.patch('othello.Othello.start') as mock_start:
+            self.run_game()
+            mock_start.assert_called_once()
+            self.mock_event_post.assert_called_once_with(3)
+            self.assertEqual(self.othello.status, Status.PLAY)
+
+    def test_run_cursor(self):
+        self.othello.cursor.visible = True
+        dummy_events = self.set_event(dict(type=QUIT))
+        self.mock_event_get.return_value = dummy_events()
+
+        self.run_game()
+        self.othello.cursor_group.update.assert_called_once()
+        self.othello.cursor_group.draw.assert_called_once_with(self.othello.screen)
+
+    def test_run_mousemotion(self):
+        dummy_events = self.set_event(
+            dict(type=MOUSEMOTION, pos=(150, 120)), dict(type=QUIT))
+        self.mock_event_get.return_value = dummy_events()
+
+        with mock.patch('othello.Cursor.show') as mock_show:
+            self.run_game()
+            mock_show.assert_called_once_with(Point(150, 120))
+
+    def test_run_reverse(self):
+        dummy_events = self.set_event(dict(type=1), dict(type=QUIT))
+        self.mock_event_get.return_value = dummy_events()
+
+        with mock.patch('othello.Othello.reverse_disks') as mock_reverse:
+            self.run_game()
+            mock_reverse.assert_called_once()
 
 
 if __name__ == '__main__':
