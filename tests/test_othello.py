@@ -43,13 +43,16 @@ class OthelloTestCase(TestCase, TestUtils):
             'othello.pygame.display.set_mode',
             'othello.pygame.display.set_caption',
             'othello.pygame.sprite.GroupSingle',
-            'othello.Board.set_displays',
+            # 'othello.Board.set_displays',
             'othello.Board.draw',
             'othello.pygame.image.load',
             'othello.pygame.transform.scale',
             'othello.Players.create_sounds',
             'othello.pygame.time.Clock',
-            'othello.pygame.display.update'
+            'othello.pygame.display.update',
+            'othello.Disk',
+            'othello.pygame.font.SysFont',
+            'othello.pygame.image.load'
         ]
         for target in targets:
             mock.patch(target).start()
@@ -323,13 +326,50 @@ class OthelloTestCase(TestCase, TestUtils):
             self.run_game()
             mock_show.assert_called_once_with(Point(150, 120))
 
-    def test_run_reverse(self):
-        dummy_events = self.set_event(dict(type=1), dict(type=QUIT))
+    def test_run_events(self):
+        tests = [
+            (1, 'othello.Othello.reverse_disks'),
+            (0, 'othello.Othello.place_disk'),
+            (2, 'othello.Othello.take_turns'),
+            (3, 'othello.Othello.guess_placeable'),
+            (4, 'othello.Othello.pass_turn'),
+            (5, 'othello.Othello.game_over')
+        ]
+        for event, target in tests:
+            dummy_events = self.set_event(dict(type=event), dict(type=QUIT))
+            self.mock_event_get.return_value = dummy_events()
+
+            with mock.patch(target) as mock_method:
+                self.run_game()
+                mock_method.assert_called_once()
+
+            self.mock_event_get.reset_mock()
+
+    def test_run_click(self):
+        self.othello.board.button.rect.collidepoint.return_value = False
+        dummy_events = self.set_event(
+            dict(type=MOUSEBUTTONUP, button=1, pos=(150, 120)), dict(type=QUIT))
         self.mock_event_get.return_value = dummy_events()
 
-        with mock.patch('othello.Othello.reverse_disks') as mock_reverse:
+        with mock.patch('othello.Button.click') as mock_button_click, \
+                mock.patch('othello.Othello.player_click') as mock_player_click:
             self.run_game()
-            mock_reverse.assert_called_once()
+            mock_button_click.assert_not_called()
+            mock_player_click.assert_called_once()
+            self.othello.board.button.rect.collidepoint.assert_called_once_with(150, 120)
+
+    def test_run_player_click(self):
+        self.othello.board.button.rect.collidepoint.return_value = True
+        dummy_events = self.set_event(
+            dict(type=MOUSEBUTTONUP, button=1, pos=(150, 120)), dict(type=QUIT))
+        self.mock_event_get.return_value = dummy_events()
+
+        with mock.patch('othello.Button.click') as mock_button_click, \
+                mock.patch('othello.Othello.player_click') as mock_player_click:
+            self.run_game()
+            mock_button_click.assert_called_once()
+            mock_player_click.assert_not_called()
+            self.othello.board.button.rect.collidepoint.assert_called_once_with(150, 120)
 
 
 if __name__ == '__main__':
