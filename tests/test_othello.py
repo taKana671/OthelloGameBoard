@@ -43,7 +43,6 @@ class OthelloTestCase(TestCase, TestUtils):
             'othello.pygame.display.set_mode',
             'othello.pygame.display.set_caption',
             'othello.pygame.sprite.GroupSingle',
-            # 'othello.Board.set_displays',
             'othello.Board.draw',
             'othello.pygame.image.load',
             'othello.pygame.transform.scale',
@@ -268,8 +267,8 @@ class OthelloTestCase(TestCase, TestUtils):
             mock_timer.assert_not_called()
 
     def test_game_over_draw(self):
-        self.othello.board.status = self.othello.status = Status.PLAY
-        self.othello.board.black_score = self.othello.board.white_score = 32
+        self.set_attrs(self.othello.board, stats=Status.PLAY, black_score=32, white_score=32)
+        self.othello.status = Status.PLAY
 
         with mock.patch('othello.Board.set_turn') as mock_turn:
             self.othello.game_over()
@@ -284,9 +283,9 @@ class OthelloTestCase(TestCase, TestUtils):
         with mock.patch('othello.Board.set_turn') as mock_turn:
             for (black, white), expect in zip(scores, expects):
                 with self.subTest((black, white)):
-                    self.othello.board.status = self.othello.status = Status.PLAY
-                    self.othello.board.black_score = black
-                    self.othello.board.white_score = white
+                    self.set_attrs(
+                        self.othello.board, stats=Status.PLAY, black_score=black, white_score=white)
+                    self.othello.status = Status.PLAY
                     self.othello.game_over()
                     self.assertEqual(self.othello.board.status, Status.WIN)
                     self.assertEqual(self.othello.status, Status.GAMEOVER)
